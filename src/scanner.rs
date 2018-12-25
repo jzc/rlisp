@@ -29,7 +29,7 @@ impl Scanner {
             source: source.to_vec(),
             start: 0,
             current: 0,
-            line: 0,
+            line: 1,
         }
     }
 
@@ -104,6 +104,12 @@ mod tests {
         scanner = Scanner::new(b"(ab( 1 2)");
         res = scanner.scan_tokens();
         assert!(res.is_err());
+        assert_eq!(res.err().unwrap().line, 1);
+
+        scanner = Scanner::new(b"(1 2\nab( 3)");
+        res = scanner.scan_tokens();
+        assert!(res.is_err());
+        assert_eq!(res.err().unwrap().line, 2);
 
         let sources: Vec<&[u8]> = vec![
             b"(+ abc def)",
@@ -119,6 +125,19 @@ mod tests {
             assert!(res.is_ok());
             assert_eq!(res.ok().unwrap(), [Token::OpenParen, s(b"+"), s(b"abc"), s(b"def"), Token::ClosedParen]);
         }
+
+        scanner = Scanner::new(b"(() (1 2 3))");
+        res = scanner.scan_tokens();
+        assert!(res.is_ok());
+        assert_eq!(res.ok().unwrap(), [Token::OpenParen, 
+            Token::OpenParen, Token::ClosedParen,
+            Token::OpenParen, s(b"1"), s(b"2"), s(b"3"), Token::ClosedParen,
+            Token::ClosedParen]);
+
+        scanner = Scanner::new(b"(#$%-a)");
+        res = scanner.scan_tokens();
+        assert!(res.is_ok());
+        assert_eq!(res.ok().unwrap(), [Token::OpenParen, s(b"#$%-a"), Token::ClosedParen])
         
     }
 
