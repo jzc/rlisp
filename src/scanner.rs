@@ -1,19 +1,4 @@
-pub type AsciiString = Vec<u8>;
-
-#[derive(PartialEq, Debug, Clone)]
-pub enum Token {
-    OpenParen,
-    ClosedParen,
-    Int(i64),
-    Float(f64),
-    Str(AsciiString),
-    Symbol(AsciiString),
-}
-
-pub struct ParseError {
-    pub message: &'static str,
-    pub line: usize,
-}
+use crate::ast::{Token, ParseError, AsciiString};
 
 fn is_whitespace(ch: u8) -> bool {
     (ch == b' ') || (ch == b'\n')

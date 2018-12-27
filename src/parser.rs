@@ -1,14 +1,5 @@
-use crate::scanner::*;
-
-#[derive(PartialEq, Debug)]
-pub enum Expr {
-    Null,
-    Int(i64),
-    Float(f64),
-    Str(AsciiString),
-    Symbol(AsciiString),
-    List(Vec<Box<Expr>>),
-}
+use crate::ast::{Token, ParseError, Expr};
+use crate::scanner::Scanner;
 
 pub struct Parser {
     tokens: Vec<Token>,
@@ -94,6 +85,10 @@ mod tests {
         assert!(res.is_ok());
         assert_eq!(res.ok().unwrap(), expected);
     }
+    fn parse_err(x: &'static str) {
+        let res = parse(x);
+        assert!(res.is_err());
+    }
 
     fn f(x: f64) -> Expr { Expr::Float(x) }
     fn i(x: i64) -> Expr { Expr::Int(x) }
@@ -120,8 +115,6 @@ mod tests {
 
     #[test]
     fn test_exprs() {
-        parse_ok("(() () ())", l(vec![n(), n(), n()]));
-
         let tests = vec![
             ("(+ 1 2)", l(vec![sy("+"), i(1), i(2)])),
             ("(+ 1 2 3 4 5)", l(vec![sy("+"), i(1), i(2), i(3), i(4), i(5)])),
@@ -132,5 +125,13 @@ mod tests {
             ("(cons 1 (cons 2 (cons 3 ())))", l(vec![sy("cons"), i(1), l(vec![sy("cons"), i(2), l(vec![sy("cons"), i(3), n()])])]))
         ];
         for (x, y) in tests { parse_ok(x, y); }
+    }
+
+    #[test]
+    fn test_err() {
+        let tests = vec![
+            ")", "(+ 1", "", "(()"
+        ];
+        for x in tests { parse_err(x); }
     }
 }
