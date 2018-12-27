@@ -202,192 +202,118 @@ mod tests {
     fn f(x: f64) -> Token { Token::Float(x) }
     fn op() -> Token { Token::OpenParen }
     fn cp() -> Token { Token::ClosedParen }
+    
     fn tokens(x: &'static str) -> Result<Vec<Token>, ParseError> { 
         let xstr = x.as_bytes();
         let mut scanner = Scanner::new(xstr);
         scanner.scan_tokens()
     }
 
+    fn scan_ok(x: &'static str, expected: Vec<Token>) {
+        let res = tokens(x);
+        assert!(res.is_ok());
+        assert_eq!(res.ok().unwrap(), expected);
+    }
+
+    fn scan_err(x: &'static str) {
+        let res = tokens(x);
+        assert!(res.is_err());
+    }
+
+
     #[test]
     fn test_scan_tokens() {
-        let mut res;
-
-        res = tokens("()");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [op(), cp()]);
-        
-        res = tokens("(ab( 1 2)");
-        assert!(res.is_err());
-        assert_eq!(res.err().unwrap().line, 1);
-
-        res = tokens("(1 2\nab( 3)");
-        assert!(res.is_err());
-        assert_eq!(res.err().unwrap().line, 2);
-
-        let sources = vec![
-            "(+ abc def)",
-            "( + abc def)",
-            "(+ abc def )",
-            "(+  abc    def)",
-            "    (+ abc def)  ",
-            "(+\nabc\ndef)",
+        let mut tests = vec![
+            ("()", vec![op(), cp()]),
+            ("(() (1 2 3))", vec![op(), op(), cp(), op(), i(1), i(2), i(3), cp(), cp()]),
+            ("(#$%-a)", vec![op(), s("#$%-a"), cp()]),
+            ("(() () ())", vec![op(), op(), cp(), op(), cp(), op(), cp(), cp()]),
         ];
-        for si in sources {
-            res = tokens(si);
-            assert!(res.is_ok());
-            assert_eq!(res.ok().unwrap(), [op(), s("+"), s("abc"), s("def"), cp()]);
-        }
+        let same = vec![
+            "(+ abc def)", "( + abc def)", "(+ abc def )",
+            "(+  abc    def)", "    (+ abc def)  ", "(+\nabc\ndef)",
+        ];
+        for i in same { tests.push((i, vec![op(), s("+"), s("abc"), s("def"), cp()])); }
 
+        for (x, y) in tests { scan_ok(x, y); }
 
-        res = tokens("(() (1 2 3))");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [Token::OpenParen, 
-            Token::OpenParen, Token::ClosedParen,
-            Token::OpenParen, i(1), i(2), i(3), Token::ClosedParen,
-            Token::ClosedParen]);
+        let errs = vec![
+            "(ab( 1 2)", "(1 2\nab( 3)",
+        ];
 
-        res = tokens("(#$%-a)");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [op(), s("#$%-a"), cp()]);
-
-        res = tokens("(() () ())");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [op(), op(), cp(), op(), cp(), op(), cp(), cp()])
+        for x in errs { scan_err(x); }
     }
 
     #[test]
     fn test_scan_int() {
-        let mut res;
-
-        res = tokens("123");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [i(123)]);
-
-        res = tokens("(1");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [op(), i(1)]);
-
-        let sources = vec![
-            " 123",
-            "0123",
-            " 0123",
-            " +0123",
-            "+0123",
+        let mut tests = vec![
+            ("123", vec![i(123)]),
+            ("(1", vec![op(), i(1)]),
+            ("(+011233)", vec![op(), i(11233), cp()]),
+            ("(-011233)", vec![op(), i(-11233), cp()]),
+            ("-55123", vec![i(-55123)]),
+            ("--5123", vec![s("--5123")]),
+            ("-+5123", vec![s("-+5123")]),
+            ("5-5", vec![s("5-5")]),
         ];
-        for si in sources {
-            res = tokens(si);
-            assert!(res.is_ok());
-            assert_eq!(res.ok().unwrap(), [i(123)]);
-        }
 
+        let same = vec![
+            " 123", "0123"," 0123",
+            " +0123", "+0123",
+        ];
+        for x in same { tests.push((x, vec![i(123)])); }
 
-        res = tokens(" +01123(3");
-        assert!(res.is_err());
+        for (x, y) in tests { scan_ok(x, y) }
 
-        res = tokens("(+011233)");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [op(), i(11233), cp()]);
+        scan_err(" +01123(3");
     }
 
     #[test]
     fn test_scan_string() {
-        let mut res;
+        let tests = vec! [
+            (r#" ("abc") "#, vec![op(), st("abc"), cp()]),
+            (r#" "(abc))())(" "#, vec![st("(abc))())(")]),
+            (r#"  ("abc" "def" ("ijk")) "#, vec![op(), st("abc"), st("def"), op(), st("ijk"), cp(), cp()]),
+        ];
 
-        res = tokens(r#" ("abc") "#);
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [op(), st("abc"), cp()]);
+        for (x, y) in tests { scan_ok(x, y); }
 
-        res = tokens(r#" "(abc))())(" "#);
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [st("(abc))())(")]);
+        let errs = vec![
+            " \"a\nb\"  ", "(\")"
+        ];
 
-        res = tokens(" \"a\nb\"  ");
-        assert!(res.is_err());
-
-        res = tokens("(\")");
-        assert!(res.is_err());
-
-        res = tokens(r#"  ("abc" "def" ("ijk")) "#);
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [op(), st("abc"), st("def"), op(), st("ijk"), cp(), cp()]);
+        for x in errs { scan_err(x); }
     }
 
     #[test]
     fn test_scan_float() {
-        let mut res;
-        let mut sources;
-
-        sources = vec![
-            "1.0",
-            "01.0",
-            "+1.0",
-            "+01.0",
-            "+01.",
-            "01.",
-            "1.",
-            "1.00",
-            "+1.00",
-            "+01.00",
-        ];
-        for si in sources {
-            res = tokens(si);
-            assert!(res.is_ok());
-            assert_eq!(res.ok().unwrap(), [f(1.0)]);
-        }
-
-        sources = vec![
-            "1e1",
-            "+1e1",
-            "+1e+1",
-            "1e+01",
-            "001e01",
-            "001.0e+01",
-            "1.e+1",
-            "1.e+001",
-            "001.e01",
-        ];
-        
-        for si in sources {
-            res = tokens(si);
-            assert!(res.is_ok());
-            assert_eq!(res.ok().unwrap(), [f(1e1)]);
-        }
-
-        sources = vec![
-            "1(e1",
-            "1e1(",
-            "1.e1(",
-            "1.e(1",
+        let mut tests = vec![
+            ("1.1.", vec![s("1.1.")]),
+            ("1.e15.", vec![s("1.e15.")]),
+            ("1.e", vec![s("1.e")]),
+            (".1", vec![f(0.1)]),
+            (".", vec![s(".")]),
+            ("3.14156e-03", vec![f(3.14156e-03)])
         ];
 
-        for si in sources {
-            res = tokens(si);
-            assert!(res.is_err());
-        }
+        let same1 = vec![
+            "1.0", "01.0", "+1.0", "+01.0", "+01.",
+            "01.", "1.", "1.00", "+1.00", "+01.00",
+        ];
+        for i in same1 { tests.push((i, vec![f(1.0)])); }
 
-        res = tokens("1.1.");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [s("1.1.")]);
+        let same2 = vec![
+            "1e1", "+1e1", "+1e+1",
+            "1e+01", "001e01", "001.0e+01",
+            "1.e+1", "1.e+001", "001.e01",
+        ];
+        for i in same2 { tests.push((i, vec![f(1e1)])); }
 
-        res = tokens("1.e15.");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [s("1.e15.")]);
+        let errs = vec![
+            "1(e1", "1e1(", "1.e1(", "1.e(1",
+        ];
 
-        res = tokens("1.e");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [s("1.e")]);
-
-        res = tokens(".1");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [f(0.1)]);
-
-        res = tokens(".");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [s(".")]);
-
-        res = tokens("3.14156e-03");
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [f(3.14156e-03)]);
+        for x in errs { scan_err(x); }       
     }
 
     #[test]

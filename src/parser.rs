@@ -80,11 +80,13 @@ mod tests {
         let mut parser = Parser::new(tokens);
         parser.parse()
     }
+
     fn parse_ok(x: &'static str, expected: Expr) {
         let res = parse(x);
         assert!(res.is_ok());
         assert_eq!(res.ok().unwrap(), expected);
     }
+    
     fn parse_err(x: &'static str) {
         let res = parse(x);
         assert!(res.is_err());
