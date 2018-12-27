@@ -1,4 +1,4 @@
-type AsciiString = Vec<u8>;
+pub type AsciiString = Vec<u8>;
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum Token {
@@ -6,13 +6,13 @@ pub enum Token {
     ClosedParen,
     Int(i64),
     Float(f64),
-    String(AsciiString),
+    Str(AsciiString),
     Symbol(AsciiString),
 }
 
 pub struct ParseError {
-    message: String,
-    line: usize,
+    pub message: &'static str,
+    pub line: usize,
 }
 
 fn is_whitespace(ch: u8) -> bool {
@@ -55,12 +55,11 @@ impl Scanner {
     }
 
     fn parse_err(&self, message: &'static str) -> Result<(), ParseError> {
-        Err(ParseError { message: message.to_string(), line: self.line })
+        Err(ParseError { message: message, line: self.line })
     }
 
     fn scan_token(&mut self) -> Result<(), ParseError> {
-        let ch = self.advance();
-        match ch.unwrap() {
+        match self.advance().unwrap() {
             b' ' => Ok(()),
             b'\n' => { self.line += 1; Ok(()) }
             b'(' => { self.tokens.push(Token::OpenParen); Ok(()) }
@@ -174,7 +173,7 @@ impl Scanner {
 
     fn add_string_token(&mut self) {
         let slice = self.source[self.start+1..self.current-1].to_vec();
-        self.tokens.push(Token::String(slice));
+        self.tokens.push(Token::Str(slice));
     }
 
     fn add_symbol_token(&mut self) {
@@ -195,18 +194,14 @@ impl Scanner {
     }
 
     fn advance(&mut self) -> Option<u8> {
-        if self.at_end() {
-            return None;
-        }
+        if self.at_end() { return None; }
         let ch = self.source[self.current];
         self.current += 1;
         Some(ch)
     }
 
     fn peek(&self) -> Option<u8> {
-        if self.at_end() {
-            return None;
-        }
+        if self.at_end() { return None; }
         Some(self.source[self.current])
     }
 }
@@ -217,7 +212,7 @@ mod tests {
     use super::*;
 
     fn s(x: &'static str) -> Token { Token::Symbol(x.as_bytes().to_vec()) }
-    fn st(x: &'static str) -> Token { Token::String(x.as_bytes().to_vec()) }
+    fn st(x: &'static str) -> Token { Token::Str(x.as_bytes().to_vec()) }
     fn i(x: i64) -> Token { Token::Int(x) }
     fn f(x: f64) -> Token { Token::Float(x) }
     fn op() -> Token { Token::OpenParen }
@@ -268,7 +263,11 @@ mod tests {
 
         res = tokens("(#$%-a)");
         assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), [op(), s("#$%-a"), cp()])
+        assert_eq!(res.ok().unwrap(), [op(), s("#$%-a"), cp()]);
+
+        res = tokens("(() () ())");
+        assert!(res.is_ok());
+        assert_eq!(res.ok().unwrap(), [op(), op(), cp(), op(), cp(), op(), cp(), cp()])
     }
 
     #[test]
