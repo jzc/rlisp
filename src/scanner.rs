@@ -1,29 +1,33 @@
-use crate::ast::{Token, ParseError, AsciiString};
+use crate::ast::{Token, ParseError};
+use std::str::Chars;
+use std::iter::Peekable;
 
-fn is_whitespace(ch: u8) -> bool {
-    (ch == b' ') || (ch == b'\n')
+fn is_whitespace(ch: char) -> bool {
+    (ch == ' ') || (ch == '\n') || (ch == '\r') || (ch == '\t')
 }
 
-fn is_numeric(ch: u8) -> bool {
-    (ch >= b'0') && (ch <= b'9')
+fn is_numeric(ch: char) -> bool {
+    (ch >= '0') && (ch <= '9')
 }
 
 const MISSING_QUOTE: &str = "Missing quote '\"'";
 const UNEXPECTED_QUOTE: &str = "Unexpected quote '\"'";
 const OPEN_PAREN_IN_ATOM: &str = "Found illegal opening paren '(' in atom";
 
-pub struct Scanner {
-    source: AsciiString,
+pub struct Scanner<'a> {
+    source: &'a str,
+    iter: Peekable<Chars<'a>>,
     start: usize,
     current: usize,
     line: usize,
-    tokens: Vec<Token>
+    tokens: Vec<Token<'a>>
 }
 
-impl Scanner {
-    pub fn new<'a>(source: &'a [u8]) -> Self {
+impl<'a> Scanner<'a> {
+    pub fn new(source: &'a str) -> Self {
         Scanner {
-            source: source.to_vec(),
+            source: source,
+            iter: source.chars().peekable(),
             start: 0,
             current: 0,
             line: 1,
@@ -31,12 +35,12 @@ impl Scanner {
         }
     }
 
-    pub fn scan_tokens(&mut self) -> Result<Vec<Token>, ParseError> {
+    pub fn scan_tokens(mut self) -> Result<Vec<Token<'a>>, ParseError> {
         while !self.at_end() {
             self.start = self.current;
             self.scan_token()?;
         }
-        return Ok(self.tokens.clone());
+        return Ok(self.tokens);
     }
 
     fn parse_err(&self, message: &'static str) -> Result<(), ParseError> {
@@ -45,14 +49,14 @@ impl Scanner {
 
     fn scan_token(&mut self) -> Result<(), ParseError> {
         match self.advance().unwrap() {
-            b' ' => Ok(()),
-            b'\n' => { self.line += 1; Ok(()) }
-            b'(' => { self.tokens.push(Token::OpenParen); Ok(()) }
-            b')' => { self.tokens.push(Token::ClosedParen); Ok(()) }
-            b'+' | b'-' => if self.is_more_token() { self.int() } else { self.symbol() }
+            ' ' => Ok(()),
+            '\n' => { self.line += 1; Ok(()) }
+            '(' => { self.tokens.push(Token::OpenParen); Ok(()) }
+            ')' => { self.tokens.push(Token::ClosedParen); Ok(()) }
+            '+' | '-' => if self.is_more_token() { self.int() } else { self.symbol() }
             ch if is_numeric(ch) => self.int(),
-            b'.' => if self.is_more_token() { self.float(false) } else { self.symbol() }
-            b'"' => self.string(),
+            '.' => if self.is_more_token() { self.float(false) } else { self.symbol() }
+            '"' => self.string(),
             _ => self.symbol(),
         }
     }
@@ -61,13 +65,13 @@ impl Scanner {
         while self.is_more_token() {
             match self.advance().unwrap() {
                 ch if is_numeric(ch) => (),
-                b'.' => return self.float(false),
-                b'e' | b'E' => return match self.peek() {
+                '.' => return self.float(false),
+                'e' | 'E' => return match self.peek() {
                     None => self.symbol(),
                     Some(_) => self.float(true),
                 },
-                b'"' => return self.parse_err(UNEXPECTED_QUOTE),
-                b'(' => return self.parse_err(OPEN_PAREN_IN_ATOM),
+                '"' => return self.parse_err(UNEXPECTED_QUOTE),
+                '(' => return self.parse_err(OPEN_PAREN_IN_ATOM),
                 _ => return self.symbol(),
             }
         }
@@ -80,8 +84,8 @@ impl Scanner {
             while self.is_more_token() {
                 match self.advance().unwrap() {
                     ch if is_numeric(ch) => (),
-                    b'e' | b'E' => { exponent_consumed = true; break; }
-                    b'(' => return self.parse_err(OPEN_PAREN_IN_ATOM),
+                    'e' | 'E' => { exponent_consumed = true; break; }
+                    '(' => return self.parse_err(OPEN_PAREN_IN_ATOM),
                     _ => return self.symbol(),
                 }
             }
@@ -97,7 +101,7 @@ impl Scanner {
         match self.peek() {
             None => (),
             Some(ch) => match ch {
-                b'+' | b'-' => { self.advance(); },
+                '+' | '-' => { self.advance(); },
                 ch if is_numeric(ch) => (),
                 _ => return self.symbol(),
             }
@@ -106,7 +110,7 @@ impl Scanner {
         while self.is_more_token() {
             match self.advance().unwrap() {
                 ch if is_numeric(ch) => (),
-                b'(' => return self.parse_err(OPEN_PAREN_IN_ATOM),
+                '(' => return self.parse_err(OPEN_PAREN_IN_ATOM),
                 _ => return self.symbol(),
             }
         }
@@ -120,8 +124,8 @@ impl Scanner {
             match self.advance() {
                 None => return self.parse_err(MISSING_QUOTE),
                 Some(ch) => match ch {
-                    b'"' => { self.add_string_token(); return Ok(()); }
-                    b'\n' => return self.parse_err(MISSING_QUOTE),
+                    '"' => { self.add_string_token(); return Ok(()); }
+                    '\n' => return self.parse_err(MISSING_QUOTE),
                     _ => ()
                 }
             }
@@ -131,7 +135,7 @@ impl Scanner {
     fn symbol(&mut self) -> Result<(), ParseError> {
         while self.is_more_token() {
             match self.advance().unwrap() {
-                b'(' => return self.parse_err(OPEN_PAREN_IN_ATOM),
+                '(' => return self.parse_err(OPEN_PAREN_IN_ATOM),
                 _ => ()
             }
         }
@@ -140,29 +144,25 @@ impl Scanner {
         Ok(())
     }
 
-    fn token_str(&self) -> String {
-        let slice = &self.source[self.start..self.current];
-        let token_str = String::from_utf8(slice.to_vec()).ok().unwrap();
-        token_str
-    }
-
     fn add_int_token(&mut self) {
-        let parsed = self.token_str().parse::<i64>().ok().unwrap();
+        let token_str = self.source.get(self.start..self.current).unwrap();
+        let parsed = token_str.parse::<i64>().ok().unwrap();
         self.tokens.push(Token::Int(parsed));
     }
 
     fn add_float_token(&mut self) {
-        let parsed = self.token_str().parse::<f64>().ok().unwrap();
+        let token_str = self.source.get(self.start..self.current).unwrap();
+        let parsed = token_str.parse::<f64>().ok().unwrap();
         self.tokens.push(Token::Float(parsed));
     }
 
     fn add_string_token(&mut self) {
-        let slice = self.source[self.start+1..self.current-1].to_vec();
+        let slice = self.source.get(self.start+1..self.current-1).unwrap();
         self.tokens.push(Token::Str(slice));
     }
 
     fn add_symbol_token(&mut self) {
-        let slice = self.source[self.start..self.current].to_vec();
+        let slice = self.source.get(self.start..self.current).unwrap();
         self.tokens.push(Token::Symbol(slice));
     }
 
@@ -170,24 +170,29 @@ impl Scanner {
         self.current >= self.source.len()
     }
 
-    fn is_more_token(&self) -> bool {
+    fn is_more_token(&mut self) -> bool {
         match self.peek() {
             None => false,
-            Some(ch) if is_whitespace(ch) || (ch == b')') => false,
+            Some(ch) if is_whitespace(ch) || (ch == ')') => false,
             _ => true,
         }
     }
 
-    fn advance(&mut self) -> Option<u8> {
-        if self.at_end() { return None; }
-        let ch = self.source[self.current];
-        self.current += 1;
-        Some(ch)
+    fn advance(&mut self) -> Option<char> {
+        match self.iter.next() {
+            Some(ch) => {
+                self.current += ch.len_utf8();
+                Some(ch)
+            }
+            None => None,
+        }
     }
 
-    fn peek(&self) -> Option<u8> {
-        if self.at_end() { return None; }
-        Some(self.source[self.current])
+    fn peek(&mut self) -> Option<char> {
+        match self.iter.peek() {
+            Some(&ch) => Some(ch),
+            None => None,
+        }      
     }
 }
 
@@ -196,16 +201,15 @@ impl Scanner {
 mod tests {
     use super::*;
 
-    fn s(x: &'static str) -> Token { Token::Symbol(x.as_bytes().to_vec()) }
-    fn st(x: &'static str) -> Token { Token::Str(x.as_bytes().to_vec()) }
-    fn i(x: i64) -> Token { Token::Int(x) }
-    fn f(x: f64) -> Token { Token::Float(x) }
-    fn op() -> Token { Token::OpenParen }
-    fn cp() -> Token { Token::ClosedParen }
+    fn s(x: &'static str) -> Token { Token::Symbol(x) }
+    fn st(x: &'static str) -> Token { Token::Str(x) }
+    fn i(x: i64) -> Token<'static> { Token::Int(x) }
+    fn f(x: f64) -> Token<'static> { Token::Float(x) }
+    fn op() -> Token<'static> { Token::OpenParen }
+    fn cp() -> Token<'static> { Token::ClosedParen }
     
     fn tokens(x: &'static str) -> Result<Vec<Token>, ParseError> { 
-        let xstr = x.as_bytes();
-        let mut scanner = Scanner::new(xstr);
+        let scanner = Scanner::new(x);
         scanner.scan_tokens()
     }
 
@@ -318,25 +322,25 @@ mod tests {
 
     #[test]
     fn test_advance() {
-        let mut scanner = Scanner::new(b"123");
-        assert_eq!(scanner.advance(), Some(b'1'));
-        assert_eq!(scanner.advance(), Some(b'2'));
-        assert_eq!(scanner.advance(), Some(b'3'));
+        let mut scanner = Scanner::new("123");
+        assert_eq!(scanner.advance(), Some('1'));
+        assert_eq!(scanner.advance(), Some('2'));
+        assert_eq!(scanner.advance(), Some('3'));
         assert_eq!(scanner.advance(), None);
     }
 
     #[test]
     fn test_peek() {
-        let mut scanner = Scanner::new(b"1");
-        assert_eq!(scanner.peek(), Some(b'1'));
-        assert_eq!(scanner.advance(), Some(b'1'));
+        let mut scanner = Scanner::new("1");
+        assert_eq!(scanner.peek(), Some('1'));
+        assert_eq!(scanner.advance(), Some('1'));
         assert_eq!(scanner.peek(), None);
         assert_eq!(scanner.advance(), None);
     }
 
     #[test]
     fn test_at_end() {
-        let mut scanner = Scanner::new(b"12345");
+        let mut scanner = Scanner::new("12345");
         for _ in 0..5 { scanner.advance(); }
         assert!(scanner.at_end());
     }

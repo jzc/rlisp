@@ -1,5 +1,5 @@
 [package]
-name = "rlisp"
+name = "rscheme"
 version = "0.1.0"
 authors = ["jzc <justincai.lps@gmail.com>"]
 edition = "2018"
