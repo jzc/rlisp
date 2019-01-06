@@ -30,7 +30,8 @@ pub enum SExpr<'a> {
 #[derive(PartialEq, Debug, Clone)]
 pub enum Object<'a> {
     Cons(SExpr<'a>, SExpr<'a>),
-    Function(SExpr<'a>, Location),
+    Procedure(SExpr<'a>, Location),
+    PrimitiveProcedure(fn(SExpr<'a>) -> SExpr<'a>),
     Env(Environment<'a>),
     Empty(Option<Location>),
 }
@@ -49,7 +50,7 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn get(&self, k: &'a str, mem: &'a Memory) -> Option<SExpr<'a>> {
+    pub fn get<'b>(&self, k: &'a str, mem: &'b Memory<'a>) -> Option<SExpr<'a>> {
         match self.env.get(k) {
             Some(&e) => Some(e),
             None => match self.enclosing {
@@ -72,12 +73,10 @@ pub struct Memory<'a> {
 
 impl<'a> Memory<'a> {
     pub fn new(size: usize) -> Self {
-        assert!(size > 0);
         let mut mem = vec![Object::Empty(None); size];
         for i in 0..size-1 {
             mem[i] = Object::Empty(Some(i+1));
         }
-        // mem[size-1] = Object::Empty(None);
         Memory { mem: mem, first: Some(0) }
     }
 
@@ -96,8 +95,22 @@ impl<'a> Memory<'a> {
         }
     }
 
-    pub fn get(&self, loc: Location) -> &Object {
+    pub fn get(&self, loc: Location) -> &Object<'a> {
         &self.mem[loc]
+    }
+
+    pub fn car(&self, loc: Location) -> SExpr {
+        match &self.mem[loc] {
+            Object::Cons(ref car, _) => *car,
+            _ => panic!("Object is not cons"),
+        }
+    }
+
+    pub fn cdr(&self, loc: Location) -> SExpr {
+        match &self.mem[loc] {
+            Object::Cons(_, ref cdr) => *cdr,
+            _ => panic!("Object is not cons"),
+        }
     }
 
     pub fn set_car(&mut self, loc: Location, e: SExpr<'a>) {

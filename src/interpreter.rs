@@ -1,88 +1,71 @@
-// use std::collections::HashMap;
-// use std::str;
-// use crate::ast::{Expr, AsciiString};
+use crate::ast::{SExpr, Memory, Environment};
 
-// struct Memory {
-//     mem: Vec<Expr>
-// }
+struct Interpreter<'a> {
+    mem: Memory<'a>,
+}
 
-// impl Memory {
-//     pub fn new() -> Self {
-//         Memory { mem: Vec::new() }
-//     }
+impl<'a> Interpreter<'a> { 
+    pub fn new() -> Self {
+        Interpreter { mem: mem }
+    }
 
-//     pub fn alloc(&mut self, e: Expr) -> usize {
-//         self.mem.push(e);
-//         self.mem.len()-1
-//     }
+    pub fn eval(&mut self, e: SExpr<'a>, env: Environment<'a>) -> Result<SExpr, &'static str> {
+        match e {
+            // values
+            v @ SExpr::Int(_)  => Ok(v),
+            v @ SExpr::Float(_)  => Ok(v),
+            v @ SExpr::Str(_)  => Ok(v),
+            v @ SExpr::Nil  => Ok(v),
+            // variables
+            SExpr::Sym(s) => match env.get(s, &self.mem) {
+                Some(sexpr) => Ok(sexpr),
+                None => Err("variable not found"),
+            }
+            v @ SExpr::Ref(_) => Ok(v),
+            // Expr::Symbol(s) => match env.get(&s, ) {
+            //     Some(e) => Ok(e),
+            //     None => Err("Unbound variable"),
+            // }
+            // Expr::List(exprs) => if let Some(Expr::Symbol(s)) = exprs.get(0) { 
+            //     match s.as_slice() {
+            //         b"define" => unimplemented!(),
+            //         b"lambda" => unimplemented!(),
+            //         b"set!" => unimplemented!(),
+            //         b"if" => unimplemented!(),
 
-//     pub fn get(&self, i: usize) -> Expr { self.mem[i].clone() }
-// }
+            //         // primitive functions
+            //         b"+" => unimplemented!(),
+            //         b"-" => unimplemented!(),
+            //         b"*" => unimplemented!(),
+            //         b"/" => unimplemented!(),
+            //         b"cons" => unimplemented!(),
+            //         b"car" => unimplemented!(),
+            //         b"cdr" => unimplemented!(),
 
-// struct Environment<'a> {
-//     env: HashMap<AsciiString, Expr>,
-//     enclosing: Option<&'a Environment<'a>>,
-// }
+            //         s => unimplemented!(),
+            //     }
+            // } else { Err("expected symbol") }
+        }
+    }
+}
 
-// impl<'a> Environment<'a> {
-//     pub fn new(enclosing: Option<&'a Environment<'a>>) -> Self {
-//         Environment {
-//             env: HashMap::new(),
-//             enclosing: enclosing,
-//         }
-//     }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scanner::Scanner;
+    use crate::parser::Parser;
 
-//     pub fn get(&self, k: &AsciiString) -> Option<Expr> {
-//         match self.env.get(k) {
-//             Some(e) => Some(e.clone()),
-//             None => match self.enclosing {
-//                 Some(enc) => enc.get(k),
-//                 None => None,
-//             }
-//         }
-//     }
-// }
-
-// struct Interpreter {
-//     environment: HashMap<AsciiString, Expr>,
-//     mem: Memory,
-// }
-
-// impl Interpreter { 
-//     pub fn new() -> Self {
-//         Interpreter { environment: HashMap::new(), mem: Memory::new(), }
-//     }
-
-//     pub fn eval<'a>(&mut self, e: Expr, env: Environment<'a>) -> Result<Expr, &'static str> {
-//         match e {
-//             v @ Expr::Int(_)  => Ok(v),
-//             v @ Expr::Float(_)  => Ok(v),
-//             v @ Expr::Str(_)  => Ok(v),
-//             v @ Expr::Nil  => Ok(v),
-//             v @ Expr::Ref(_) => Ok(v),
-//             Expr::Symbol(s) => match env.get(&s) {
-//                 Some(e) => Ok(e),
-//                 None => Err("Unbound variable"),
-//             }
-//             Expr::List(exprs) => if let Some(Expr::Symbol(s)) = exprs.get(0) { 
-//                 match s.as_slice() {
-//                     b"define" => unimplemented!(),
-//                     b"lambda" => unimplemented!(),
-//                     b"set!" => unimplemented!(),
-//                     b"if" => unimplemented!(),
-
-//                     // primitive functions
-//                     b"+" => unimplemented!(),
-//                     b"-" => unimplemented!(),
-//                     b"*" => unimplemented!(),
-//                     b"/" => unimplemented!(),
-//                     b"cons" => unimplemented!(),
-//                     b"car" => unimplemented!(),
-//                     b"cdr" => unimplemented!(),
-
-//                     s => unimplemented!(),
-//                 }
-//             } else { Err("expected symbol") }
-//         }
-//     }
-// }
+    #[test]
+    fn test_values() {
+        let scanner = Scanner::new("1");
+        let tokens = scanner.scan_tokens().ok().unwrap();
+        let mut mem = Memory::new(100);
+        let parser = Parser::new(tokens, &mut mem);
+        let expr = parser.parse().ok().unwrap();
+        let mut interpreter = Interpreter::new(mem);
+        let environment = Environment::new(None);
+        let res = interpreter.eval(expr, environment);
+        assert!(res.is_ok());
+        assert_eq!(res.ok().unwrap(), SExpr::Int(1));
+    }
+}
