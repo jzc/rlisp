@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::cell::{RefCell, Cell};
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Token<'a> {
@@ -15,115 +16,137 @@ pub struct ParseError {
     pub line: usize,
 }
 
-type Location = usize;
-
 #[derive(PartialEq, Copy, Clone, Debug)]
-pub enum SExpr<'a> {
+pub enum SExpr<'s, 'm> {
     Nil,
     Int(i64),
     Float(f64),
-    Str(&'a str),
-    Sym(&'a str),
-    Ref(Location),
+    Str(&'s str),
+    Sym(&'s str),
+    Ref(&'m RefCell<Object<'s, 'm>>),
 }
+
+// impl<'a, 'b> SExpr<'a, 'b> {
+//     pub fn get_env_then<T>(&self, fun: fn(&Environment<'a, 'b>)->T) -> Option<T> {
+//         match self {
+//             SExpr::Ref(loc) => {
+//                 let cell_ref = loc.borrow();
+//                 match *cell_ref {
+//                     Object::Env(ref env) => Some(fun(env)),
+//                     _ => None,
+//                 }
+//             }
+//             _ => None,
+//         }
+//     }
+// }
 
 #[derive(PartialEq, Debug, Clone)]
-pub enum Object<'a> {
-    Cons(SExpr<'a>, SExpr<'a>),
-    Procedure(SExpr<'a>, Location),
-    PrimitiveProcedure(fn(SExpr<'a>) -> SExpr<'a>),
-    Env(Environment<'a>),
-    Empty(Option<Location>),
+pub enum Object<'s, 'm> {
+    Cons(SExpr<'s, 'm>, SExpr<'s, 'm>),
+    PrimitiveProcedure,
+    CompoundProcedure(SExpr<'s, 'm>, &'m RefCell<Object<'s, 'm>>),
+    Env(Environment<'s, 'm>),
+    Empty(Option<usize>),
 }
+
 
 #[derive(PartialEq, Debug, Clone)]
-pub struct Environment<'a> {
-    env: HashMap<&'a str, SExpr<'a>>,
-    enclosing: Option<Location>,
+pub struct Environment<'s, 'm> {
+    env: HashMap<&'s str, SExpr<'s, 'm>>,
+    enclosing: Option<&'m RefCell<Object<'s, 'm>>>,
 }
 
-impl<'a> Environment<'a> {
-    pub fn new(enclosing: Option<Location>) -> Self {
-        Environment {
-            env: HashMap::new(),
-            enclosing: enclosing,
-        }
-    }
+// impl<'s, 'm>  Environment<'s, 'm>  {
+//     pub fn new(enclosing: Option<&'m RefCell<Object<'s, 'm>>>) -> Self {
+//         Environment {
+//             env: HashMap::new(),
+//             enclosing: enclosing,
+//         }
+//     }
 
-    pub fn get<'b>(&self, k: &'a str, mem: &'b Memory<'a>) -> Option<SExpr<'a>> {
-        match self.env.get(k) {
-            Some(&e) => Some(e),
-            None => match self.enclosing {
-                Some(enc_loc) => if let Object::Env(enc) = mem.get(enc_loc) {
-                    enc.get(k, mem)
-                } else {
-                    panic!()
-                }
-                None => None,
-            }
-        }
-    }
-}
+//     // pub fn get(&self, k: &'a str) -> Result<SExpr<'a, 'b>, ()> {
+//     //     match self.env.get(k) {
+//     //         Some(&e) => Some(e),
+//     //         None => match self. {
+//     //             Some(enc_loc) => if let Object::Env(enc) = mem.get(enc_loc) {
+//     //                 enc.get(k, mem)
+//     //             } else {
+//     //                 panic!()
+//     //             }
+//     //             None => None,
+//     //         }
+//     //     }
+//     //     unimplemented!()
+//     // }
+
+//     // pub fn set(&mut self, k: &'a str, v: SExpr<'a>) {
+//     //     self.env.insert(k, v);
+//     // }
+// }
 
 #[derive(PartialEq, Debug)]
-pub struct Memory<'a> {
-    mem: Vec<Object<'a>>,
-    first: Option<Location>,
+pub struct Memory<'s, 'm>  {
+    mem: Vec<RefCell<Object<'s, 'm>>>,
+    first: Cell<Option<usize>>,
 }
 
-impl<'a> Memory<'a> {
+impl<'s, 'm>  Memory<'s, 'm>  {
     pub fn new(size: usize) -> Self {
-        let mut mem = vec![Object::Empty(None); size];
+        let obj = Memory { mem: vec![RefCell::new(Object::Empty(None)); size], first: Cell::new(Some(0)) };
         for i in 0..size-1 {
-            mem[i] = Object::Empty(Some(i+1));
+            let mut cell_ref = obj.mem[i].borrow_mut();
+            *cell_ref = Object::Empty(Some(i+1));
         }
-        Memory { mem: mem, first: Some(0) }
+        obj
     }
 
-    pub fn alloc(&mut self, o: Object<'a>) -> Location {
-        match self.first {
-            Some(loc) => {
-                if let Object::Empty(next) = self.mem[loc] {
-                    self.first = next;
-                    self.mem[loc] = o;
-                    return loc;
-                } else {
-                    panic!("Head of free list is not a location");
+    pub fn alloc(&self, o: Object<'s, 'm>) -> &RefCell<Object<'s, 'm>> {
+        match self.first.get() {
+            Some(idx) => {
+                let ref_ = &self.mem[idx];
+                {
+                    let cell_ref = ref_.borrow();
+                    match *cell_ref {
+                        Object::Empty(next) => self.first.set(next),
+                        _ => panic!("Head of free list is not an empty object"),
+                    }
                 }
+                {
+                    let mut cell_ref = ref_.borrow_mut(); 
+                    *cell_ref = o;
+                }
+                ref_
             }
             None => panic!("Out of memory"),
         }
     }
 
-    pub fn get(&self, loc: Location) -> &Object<'a> {
-        &self.mem[loc]
-    }
+    // pub fn car(&self, loc: Location) -> SExpr {
+    //     match &self.mem[loc] {
+    //         Object::Cons(ref car, _) => *car,
+    //         _ => panic!("Object is not cons"),
+    //     }
+    // }
 
-    pub fn car(&self, loc: Location) -> SExpr {
-        match &self.mem[loc] {
-            Object::Cons(ref car, _) => *car,
-            _ => panic!("Object is not cons"),
-        }
-    }
+    // pub fn cdr(&self, loc: Location) -> SExpr {
+    //     match &self.mem[loc] {
+    //         Object::Cons(_, ref cdr) => *cdr,
+    //         _ => panic!("Object is not cons"),
+    //     }
+    // }
 
-    pub fn cdr(&self, loc: Location) -> SExpr {
-        match &self.mem[loc] {
-            Object::Cons(_, ref cdr) => *cdr,
-            _ => panic!("Object is not cons"),
-        }
-    }
+    // pub fn set_car(&mut self, loc: Location, e: SExpr<'a>) {
+    //     match &mut self.mem[loc] {
+    //         Object::Cons(ref mut car, _) => *car = e,
+    //         _ => panic!("Object is not cons"),
+    //     }
+    // }
 
-    pub fn set_car(&mut self, loc: Location, e: SExpr<'a>) {
-        match &mut self.mem[loc] {
-            Object::Cons(ref mut car, _) => *car = e,
-            _ => panic!("Object is not cons"),
-        }
-    }
-
-    pub fn set_cdr(&mut self, loc: Location, e: SExpr<'a>) {
-        match &mut self.mem[loc] {
-            Object::Cons(_, ref mut cdr) => *cdr = e,
-            _ => panic!("Object is not cons"),
-        }
-    }
+    // pub fn set_cdr(&mut self, loc: Location, e: SExpr<'a>) {
+    //     match &mut self.mem[loc] {
+    //         Object::Cons(_, ref mut cdr) => *cdr = e,
+    //         _ => panic!("Object is not cons"),
+    //     }
+    // }
 }
