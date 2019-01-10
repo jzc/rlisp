@@ -26,20 +26,35 @@ pub enum SExpr<'s, 'm> {
     Ref(&'m RefCell<Object<'s, 'm>>),
 }
 
-// impl<'a, 'b> SExpr<'a, 'b> {
-//     pub fn get_env_then<T>(&self, fun: fn(&Environment<'a, 'b>)->T) -> Option<T> {
-//         match self {
-//             SExpr::Ref(loc) => {
-//                 let cell_ref = loc.borrow();
-//                 match *cell_ref {
-//                     Object::Env(ref env) => Some(fun(env)),
-//                     _ => None,
-//                 }
-//             }
-//             _ => None,
-//         }
-//     }
-// }
+impl<'s, 'm> SExpr<'s, 'm> {
+    pub fn set_cdr(&self, value: SExpr<'s, 'm>) -> Result<(), ()> {
+        match self {
+            SExpr::Ref(loc) => {
+                let mut cell_ref = loc.borrow_mut();
+                match *cell_ref {
+                    Object::Cons(_, ref mut cdr) => {
+                        *cdr = value;
+                        Ok(())
+                    }
+                    _ => Err(())
+                }
+            }
+            _ => Err(())
+        }
+    }
+    // pub fn get_env_then<T>(&self, fun: fn(&Environment<'a, 'b>)->T) -> Option<T> {
+    //     match self {
+    //         SExpr::Ref(loc) => {
+    //             let cell_ref = loc.borrow();
+    //             match *cell_ref {
+    //                 Object::Env(ref env) => Some(fun(env)),
+    //                 _ => None,
+    //             }
+    //         }
+    //         _ => None,
+    //     }
+    // }
+}
 
 #[derive(PartialEq, Debug, Clone)]
 pub enum Object<'s, 'm> {
@@ -101,7 +116,7 @@ impl<'s, 'm>  Memory<'s, 'm>  {
         obj
     }
 
-    pub fn alloc(&self, o: Object<'s, 'm>) -> &RefCell<Object<'s, 'm>> {
+    pub fn alloc(&'m self, o: Object<'s, 'm>) -> SExpr<'s, 'm> { //&'m RefCell<Object<'s, 'm>> {
         match self.first.get() {
             Some(idx) => {
                 let ref_ = &self.mem[idx];
@@ -116,7 +131,7 @@ impl<'s, 'm>  Memory<'s, 'm>  {
                     let mut cell_ref = ref_.borrow_mut(); 
                     *cell_ref = o;
                 }
-                ref_
+                SExpr::Ref(ref_)
             }
             None => panic!("Out of memory"),
         }
