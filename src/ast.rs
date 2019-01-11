@@ -54,17 +54,17 @@ impl<'s, 'm> SExpr<'s, 'm> {
         Ok(vec)
     }
 
-    pub fn from_vec(v: Vec<SExpr<'s, 'm>>, mem: &'m Memory<'s, 'm>) -> Self {
-        let head = mem.alloc(Object::Pair(v[0], SExpr::Nil));
-        let mut tail = head;
-        for e in v.iter().skip(1) {
-            match e {
-                SExpr::Ref(r) => unimplemented!(),
-                _ => unimplemented!()
-            }
-        }
-        unimplemented!()
-    }
+    // pub fn from_vec(v: Vec<SExpr<'s, 'm>>, mem: &'m Memory<'s, 'm>) -> Self {
+    //     let head = mem.alloc(Object::Pair(v[0], SExpr::Nil));
+    //     let mut tail = head;
+    //     for e in v.iter().skip(1) {
+    //         match e {
+    //             SExpr::Ref(r) => unimplemented!(),
+    //             _ => unimplemented!()
+    //         }
+    //     }
+    //     unimplemented!()
+    // }
     
     
     pub fn new_object(mem: &'m Memory<'s, 'm>, o: Object<'s, 'm>) -> Self {
@@ -91,6 +91,15 @@ impl<'s, 'm> SExpr<'s, 'm> {
     pub fn cons(mem: &'m Memory<'s, 'm>, left: Self, right: Self) -> Self {
         SExpr::new_object(mem, Object::Pair(left, right))
     }
+
+    pub fn env_get(&self, k: &'s str) -> Result<Self, ()> {
+        if let SExpr::Ref(r) = self {
+            if let Object::Env(ref env) = *r.borrow() {
+                return env.get(k);
+            }
+        } 
+        Err(())
+    }
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -106,36 +115,29 @@ pub enum Object<'s, 'm> {
 #[derive(PartialEq, Debug, Clone)]
 pub struct Environment<'s, 'm> {
     env: HashMap<&'s str, SExpr<'s, 'm>>,
-    enclosing: Option<&'m RefCell<Object<'s, 'm>>>,
+    enclosing: SExpr<'s, 'm>,
+    // Option<&'m RefCell<Object<'s, 'm>>>,
 }
 
-// impl<'s, 'm>  Environment<'s, 'm>  {
-//     pub fn new(enclosing: Option<&'m RefCell<Object<'s, 'm>>>) -> Self {
-//         Environment {
-//             env: HashMap::new(),
-//             enclosing: enclosing,
-//         }
-//     }
+impl<'s, 'm> Environment<'s, 'm> {
+    pub fn new(enclosing: SExpr<'s, 'm>) -> Self {
+        Environment {
+            env: HashMap::new(),
+            enclosing: enclosing,
+        }
+    }
 
-//     // pub fn get(&self, k: &'a str) -> Result<SExpr<'a, 'b>, ()> {
-//     //     match self.env.get(k) {
-//     //         Some(&e) => Some(e),
-//     //         None => match self. {
-//     //             Some(enc_loc) => if let Object::Env(enc) = mem.get(enc_loc) {
-//     //                 enc.get(k, mem)
-//     //             } else {
-//     //                 panic!()
-//     //             }
-//     //             None => None,
-//     //         }
-//     //     }
-//     //     unimplemented!()
-//     // }
+    pub fn get(&self, k: &'s str) -> Result<SExpr<'s, 'm>, ()> {
+        match self.env.get(k) {
+            Some(&e) => Ok(e),
+            None => self.enclosing.env_get(k),
+        }
+    }
 
-//     // pub fn set(&mut self, k: &'a str, v: SExpr<'a>) {
-//     //     self.env.insert(k, v);
-//     // }
-// }
+    pub fn set(&mut self, k: &'s str, v: SExpr<'s, 'm>) {
+        self.env.insert(k, v);
+    }
+}
 
 #[derive(PartialEq, Debug)]
 pub struct Memory<'s, 'm>  {
@@ -172,5 +174,35 @@ impl<'s, 'm>  Memory<'s, 'm>  {
             }
             None => panic!("Out of memory"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    fn i<'s, 'm>(i: i64) -> SExpr<'s, 'm> { SExpr::Int(i) }
+
+    #[test]
+    fn test_env() {
+        let mem = Memory::new(100);
+
+        let mut env1 = Environment::new(SExpr::Nil);
+        env1.set("test", i(1));
+        let env1r = SExpr::new_object(&mem, Object::Env(env1));
+
+        assert_eq!(env1r.env_get("test").unwrap(), i(1));
+
+        let env2 = Environment::new(env1r);
+        let env2r = SExpr::new_object(&mem, Object::Env(env2));
+
+        assert_eq!(env2r.env_get("test").unwrap(), i(1));
+
+        let mut env3 = Environment::new(env1r);
+        env3.set("test", i(2));
+        let env3r = SExpr::new_object(&mem, Object::Env(env3));
+
+        assert_eq!(env3r.env_get("test").unwrap(), i(2));
+        
     }
 }
