@@ -1,4 +1,4 @@
-use crate::ast::{Token, ParseError, SExpr, Object, Memory};
+use crate::ast::{Token, ParseError, SExpr, Memory};
 
 pub struct Parser<'s, 'm> {
     tokens: Vec<Token<'s>>,
@@ -35,36 +35,16 @@ impl<'s, 'm> Parser<'s, 'm> {
                     None => Err(ParseError { message: "Missing closing parenthesis", line: 0}),
                     Some(Token::ClosedParen) => { self.advance(); Ok(SExpr::Nil) },
                     _ => {
-                        // let mut prev_ref = None;
-                        // let mut head_ref = None;
-                        // loop {
-                        //     let previous = self.current;
-                        //     match self.expr() {
-                        //         Ok(e) => {
-                        //             let curr_ref = self.mem.alloc(Object::Cons(e, SExpr::Nil));
-                        //             match prev_ref {
-                        //                 Some(prev_loc) => self.mem.set_cdr(prev_loc, SExpr::Ref(curr_ref)),
-                        //                 None => head_ref = Some(curr_ref),
-                        //             }
-                        //             prev_ref = Some(curr_ref)
-                        //         },
-                        //         _ => { self.current = previous; break }
-                        //     }
-                        // }
-                        // match self.advance() {
-                        //     Some(Token::ClosedParen) => Ok(SExpr::Ref(head_ref.unwrap())),
-                        //     _ => Err(ParseError { message: "Missing closing parenthesis", line: 0}),
-                        // }
                         let mut head = None;
                         let mut tail: Option<SExpr<'s, 'm>> = None;
                         loop {
                             let previous = self.current;
                             match self.expr() {
                                 Ok(e) => {
-                                    let curr = self.mem.alloc(Object::Cons(e, SExpr::Nil));
+                                    let curr = SExpr::cons(self.mem, e, SExpr::Nil); //self.mem.alloc(Object::Pair(e, SExpr::Nil));
                                     match tail {
                                         None => head = Some(curr),
-                                        Some(tail_loc) => tail_loc.set_cdr(curr).ok().unwrap(),
+                                        Some(tail_loc) => tail_loc.set_cdr(curr).expect("tail not pair"),
                                     }
                                     tail = Some(curr);
                                 },
@@ -110,21 +90,6 @@ mod tests {
     use super::*;
     use crate::scanner::Scanner;
 
-    struct Tester<'s, 'm> {
-        mem: Memory<'s, 'm>,
-    }
-
-    // fn parse_ok<'a>(s: &'a str, a: SExpr<'a, 'a>) {
-    //     let scanner = Scanner::new(s);
-    //     let tokens = scanner.scan_tokens().ok().unwrap();
-    //     let mut mem = Memory::new(100);
-    //     let mut parser = Parser::new(tokens, &mut mem);
-    //     let res = parser.parse();
-    //     assert!(res.is_ok());
-    //     assert_eq!(res.ok().unwrap(), a);
-    //     // assert_eq!(init_mem, mem);
-    // }
-
     macro_rules! parse_ok {
         ( $( ($left:expr, $right:expr) ),* )  => {
             $({
@@ -134,7 +99,21 @@ mod tests {
                 let mut parser = Parser::new(tokens, &mut mem);
                 let res = parser.parse();
                 assert!(res.is_ok());
-                assert_eq!(res.ok().unwrap(), $right);
+                assert_eq!(res.unwrap(), $right);
+            })*
+        };
+    }
+
+    macro_rules! parse_ok_fn {
+        ( $( ($left:expr, $right:expr) ),* )  => {
+            $({
+                let scanner = Scanner::new($left);
+                let tokens = scanner.scan_tokens().ok().unwrap();
+                let mut mem = Memory::new(100);
+                let mut parser = Parser::new(tokens, &mut mem);
+                let res = parser.parse();
+                assert!(res.is_ok());
+                assert!($right(res.unwrap()));
             })*
         };
     }
@@ -165,34 +144,21 @@ mod tests {
         ];
     }
 
-    // #[test]
-    // fn test_exprs() {
-    //     let scanner = Scanner::new("(+ 1 2)");
-    //     let tokens = scanner.scan_tokens().ok().unwrap();
-    //     let mut mem = Memory::new(500);
-    //     let parser = Parser::new(tokens, &mut mem);
-    //     let res = parser.parse();
-    //     assert!(res.is_ok());
-    //     assert_eq!(res.ok().unwrap(), SExpr::Ref(0));
-    //     assert_eq!(mem.car(0), SExpr::Sym("+"));
-    //     assert_eq!(mem.cdr(0), SExpr::Ref(1));
-    //     assert_eq!(mem.car(1), SExpr::Int(1));
-    //     assert_eq!(mem.cdr(1), SExpr::Ref(2));
-    //     assert_eq!(mem.car(2), SExpr::Int(2));
-    //     assert_eq!(mem.cdr(2), SExpr::Nil);
-        
-    //     // let tests = vec![
-    //     //     ("(+ 1 2)", l(vec![sy("+"), i(1), i(2)])),
-    //     //     ("(+ 1 2 3 4 5)", l(vec![sy("+"), i(1), i(2), i(3), i(4), i(5)])),
-    //     //     ("(- 3 4)", l(vec![sy("-"), i(3), i(4)])),
-    //     //     ("(* (+ 5 2) (- 5 3))", l(vec![sy("*"), l(vec![sy("+"), i(5), i(2)]), l(vec![sy("-"), i(5), i(3)])])),
-    //     //     ("(())", l(vec![n()])),
-    //     //     ("(() () ())", l(vec![n(), n(), n()])),
-    //     //     ("(cons 1 (cons 2 (cons 3 ())))", l(vec![sy("cons"), i(1), l(vec![sy("cons"), i(2), l(vec![sy("cons"), i(3), n()])])]))
-    //     // ];
-    //     // for (x, y) in tests { parse_ok(x, y); }
-    // }
-
+    #[test]
+    fn test_exprs() {
+        parse_ok_fn![
+            ("123", |x| x == i(123)),
+            ("(+)", |x: SExpr| x.list_to_vec().unwrap() == vec![sy("+")]),
+            ("(+ 1 2)", |x: SExpr| x.list_to_vec().unwrap() == vec![sy("+"), i(1), i(2)]),
+            ("(+ (+ 1 2) 3)", |x: SExpr| {
+                let a = x.list_to_vec().unwrap();
+                let as1 = a[0] == sy("+");
+                let as2 = a[2] == i(3);
+                let as3 = a[1].list_to_vec().unwrap() == vec![sy("+"), i(1), i(2)];
+                as1 && as2 && as3
+            })
+        ];
+    }
     // #[test]
     // fn test_err() {
     //     let tests = vec![
