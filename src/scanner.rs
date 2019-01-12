@@ -1,6 +1,22 @@
-use crate::ast::{Token, ParseError};
+// use crate::ast::{Token, ParseError};
 use std::str::Chars;
 use std::iter::Peekable;
+
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub enum Token<'a> {
+    OpenParen,
+    ClosedParen,
+    Int(i64),
+    Float(f64),
+    Str(&'a str),
+    Symbol(&'a str),
+}
+
+#[derive(Debug)]
+pub struct ParseError {
+    pub message: &'static str,
+    pub line: usize,
+}
 
 fn is_whitespace(ch: char) -> bool {
     (ch == ' ') || (ch == '\n') || (ch == '\r') || (ch == '\t')

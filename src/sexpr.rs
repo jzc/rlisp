@@ -1,22 +1,6 @@
 use std::collections::HashMap;
 use std::cell::{RefCell, Cell};
 
-#[derive(PartialEq, Debug, Copy, Clone)]
-pub enum Token<'a> {
-    OpenParen,
-    ClosedParen,
-    Int(i64),
-    Float(f64),
-    Str(&'a str),
-    Symbol(&'a str),
-}
-
-#[derive(Debug)]
-pub struct ParseError {
-    pub message: &'static str,
-    pub line: usize,
-}
-
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum SExpr<'s, 'm> {
     Nil,
@@ -54,17 +38,17 @@ impl<'s, 'm> SExpr<'s, 'm> {
         Ok(vec)
     }
 
-    // pub fn from_vec(v: Vec<SExpr<'s, 'm>>, mem: &'m Memory<'s, 'm>) -> Self {
-    //     let head = mem.alloc(Object::Pair(v[0], SExpr::Nil));
-    //     let mut tail = head;
-    //     for e in v.iter().skip(1) {
-    //         match e {
-    //             SExpr::Ref(r) => unimplemented!(),
-    //             _ => unimplemented!()
-    //         }
-    //     }
-    //     unimplemented!()
-    // }
+    pub fn from_vec(mem: &'m Memory<'s, 'm>, v: Vec<SExpr<'s, 'm>>) -> Self {
+        let head = mem.alloc(Object::Pair(v[0], SExpr::Nil));
+        let mut tail = head;
+        for e in v.iter().skip(1) {
+            match e {
+                SExpr::Ref(r) => unimplemented!(),
+                _ => unimplemented!()
+            }
+        }
+        unimplemented!()
+    }
     
     
     pub fn new_object(mem: &'m Memory<'s, 'm>, o: Object<'s, 'm>) -> Self {
@@ -105,7 +89,7 @@ impl<'s, 'm> SExpr<'s, 'm> {
 #[derive(PartialEq, Debug, Clone)]
 pub enum Object<'s, 'm> {
     Pair(SExpr<'s, 'm>, SExpr<'s, 'm>),
-    PrimitiveProcedure,
+    PrimitiveProcedure(fn(SExpr<'s, 'm>) -> SExpr<'s, 'm>),
     CompoundProcedure(SExpr<'s, 'm>, &'m RefCell<Object<'s, 'm>>),
     Env(Environment<'s, 'm>),
     Empty(Option<usize>),
@@ -116,7 +100,6 @@ pub enum Object<'s, 'm> {
 pub struct Environment<'s, 'm> {
     env: HashMap<&'s str, SExpr<'s, 'm>>,
     enclosing: SExpr<'s, 'm>,
-    // Option<&'m RefCell<Object<'s, 'm>>>,
 }
 
 impl<'s, 'm> Environment<'s, 'm> {
@@ -155,7 +138,7 @@ impl<'s, 'm>  Memory<'s, 'm>  {
         obj
     }
 
-    pub fn alloc(&'m self, o: Object<'s, 'm>) -> SExpr<'s, 'm> { //&'m RefCell<Object<'s, 'm>> {
+    pub fn alloc(&'m self, o: Object<'s, 'm>) -> SExpr<'s, 'm> {
         match self.first.get() {
             Some(idx) => {
                 let ref_ = &self.mem[idx];

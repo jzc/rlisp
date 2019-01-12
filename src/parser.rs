@@ -1,4 +1,5 @@
-use crate::ast::{Token, ParseError, SExpr, Memory};
+use crate::sexpr::{SExpr, Memory};
+use crate::scanner::{Token, ParseError};
 
 pub struct Parser<'s, 'm> {
     tokens: Vec<Token<'s>>,
@@ -8,7 +9,7 @@ pub struct Parser<'s, 'm> {
 }
 
 impl<'s, 'm> Parser<'s, 'm> {
-    pub fn new(tokens: Vec<Token<'s>>, mem: &'m mut Memory<'s, 'm>) -> Self {
+    pub fn new(tokens: Vec<Token<'s>>, mem: &'m Memory<'s, 'm>) -> Self {
         Parser {
             tokens: tokens,
             start: 0,
