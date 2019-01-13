@@ -22,7 +22,7 @@ impl<'s, 'm> SExpr<'s, 'm> {
        Err(())
     }
 
-    pub fn list_to_vec(&self) -> Result<Vec<SExpr<'s, 'm>>, ()> {
+    pub fn to_vec(&self) -> Result<Vec<SExpr<'s, 'm>>, ()> {
         let mut vec = Vec::new();
         let mut curr = *self;
         loop {
@@ -38,16 +38,18 @@ impl<'s, 'm> SExpr<'s, 'm> {
         Ok(vec)
     }
 
-    pub fn from_vec(mem: &'m Memory<'s, 'm>, v: Vec<SExpr<'s, 'm>>) -> Self {
-        let head = mem.alloc(Object::Pair(v[0], SExpr::Nil));
+    pub fn from_vec(mem: &'m Memory<'s, 'm>, v: Vec<SExpr<'s, 'm>>) -> Result<Self, ()> {
+        let head = match v.get(0) {
+            Some(&e) => SExpr::cons(&mem, e, SExpr::Nil),
+            None => return Err(()),
+        };
         let mut tail = head;
-        for e in v.iter().skip(1) {
-            match e {
-                SExpr::Ref(r) => unimplemented!(),
-                _ => unimplemented!()
-            }
+        for &e in &v[1..] {
+            let curr = SExpr::cons(&mem, e, SExpr::Nil);
+            tail.set_cdr(curr)?;
+            tail = curr;
         }
-        unimplemented!()
+        Ok(head)
     }
     
     
@@ -165,6 +167,7 @@ mod tests {
     use super::*;
     
     fn i<'s, 'm>(i: i64) -> SExpr<'s, 'm> { SExpr::Int(i) }
+    fn sy<'s, 'm>(s: &'s str) -> SExpr<'s, 'm> { SExpr::Sym(s) }
 
     #[test]
     fn test_env() {
@@ -185,7 +188,24 @@ mod tests {
         env3.set("test", i(2));
         let env3r = SExpr::new_object(&mem, Object::Env(env3));
 
-        assert_eq!(env3r.env_get("test").unwrap(), i(2));
-        
+        assert_eq!(env3r.env_get("test").unwrap(), i(2));   
+    }
+
+    #[test]
+    fn test_from_vec() {
+        {
+            let vec = vec![i(1), i(2), i(3)];
+            let mem = Memory::new(100);
+            let res1 = SExpr::from_vec(&mem, vec).unwrap();
+            let res2 = res1.to_vec().unwrap();
+            assert_eq!(res2, vec![i(1), i(2), i(3)]);
+        }
+        {
+            let vec = vec![sy("+"), i(1), i(2)];
+            let mem = Memory::new(100);
+            let res1 = SExpr::from_vec(&mem, vec).unwrap();
+            let res2 = res1.to_vec().unwrap();
+            assert_eq!(res2, vec![sy("+"), i(1), i(2)]);
+        }
     }
 }

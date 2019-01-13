@@ -36,25 +36,28 @@ impl<'s, 'm> Parser<'s, 'm> {
                     None => Err(ParseError { message: "Missing closing parenthesis", line: 0}),
                     Some(Token::ClosedParen) => { self.advance(); Ok(SExpr::Nil) },
                     _ => {
-                        let mut head = None;
-                        let mut tail: Option<SExpr<'s, 'm>> = None;
+                        // let mut head = None;
+                        // let mut tail: Option<SExpr<'s, 'm>> = None;
+                        let mut exprs = Vec::new();
                         loop {
                             let previous = self.current;
                             match self.expr() {
                                 Ok(e) => {
-                                    let curr = SExpr::cons(self.mem, e, SExpr::Nil); //self.mem.alloc(Object::Pair(e, SExpr::Nil));
-                                    match tail {
-                                        None => head = Some(curr),
-                                        Some(tail_loc) => tail_loc.set_cdr(curr).expect("tail not pair"),
-                                    }
-                                    tail = Some(curr);
+                                    // let curr = SExpr::cons(self.mem, e, SExpr::Nil); //self.mem.alloc(Object::Pair(e, SExpr::Nil));
+                                    // match tail {
+                                    //     None => head = Some(curr),
+                                    //     Some(tail_loc) => tail_loc.set_cdr(curr).expect("tail not pair"),
+                                    // }
+                                    // tail = Some(curr);
+                                    // println!("{:?}", e);
+                                    exprs.push(e);
                                 },
                                 Err(_) => { self.current = previous; break }
                             }
                         }
-
+                        println!("{:?}", exprs);
                         match self.advance() {
-                            Some(Token::ClosedParen) => Ok(head.unwrap()),
+                            Some(Token::ClosedParen) => Ok(SExpr::from_vec(self.mem, exprs).unwrap()),
                             _ => Err(ParseError { message: "Missing closing parenthesis", line: 0}),
                         }
                     }
@@ -114,7 +117,7 @@ mod tests {
                 let mut parser = Parser::new(tokens, &mut mem);
                 let res = parser.parse();
                 assert!(res.is_ok());
-                assert!($right(res.unwrap()));
+                $right(res.unwrap());
             })*
         };
     }
@@ -148,15 +151,16 @@ mod tests {
     #[test]
     fn test_exprs() {
         parse_ok_fn![
-            ("123", |x| x == i(123)),
-            ("(+)", |x: SExpr| x.list_to_vec().unwrap() == vec![sy("+")]),
-            ("(+ 1 2)", |x: SExpr| x.list_to_vec().unwrap() == vec![sy("+"), i(1), i(2)]),
+            ("123", |x| assert_eq!(x, i(123))),
+            ("(+)", |x: SExpr| assert_eq!(x.to_vec().unwrap(), vec![sy("+")])),
+            ("(+ 1 2)", |x: SExpr| {
+                assert_eq!(x.to_vec().unwrap(), vec![sy("+"), i(1), i(2)])
+            }),
             ("(+ (+ 1 2) 3)", |x: SExpr| {
-                let a = x.list_to_vec().unwrap();
-                let as1 = a[0] == sy("+");
-                let as2 = a[2] == i(3);
-                let as3 = a[1].list_to_vec().unwrap() == vec![sy("+"), i(1), i(2)];
-                as1 && as2 && as3
+                let a = x.to_vec().unwrap();
+                assert_eq!(a[0], sy("+"));
+                assert_eq!(a[2], i(3));
+                assert_eq!(a[1].to_vec().unwrap(), vec![sy("+"), i(1), i(2)]);
             })
         ];
     }
