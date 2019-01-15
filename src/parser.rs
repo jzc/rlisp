@@ -5,11 +5,11 @@ pub struct Parser<'s, 'm> {
     tokens: Vec<Token<'s>>,
     start: usize,
     current: usize,
-    mem: &'m Memory<'s, 'm>,
+    mem: &'m mut Memory<'s>,
 }
 
 impl<'s, 'm> Parser<'s, 'm> {
-    pub fn new(tokens: Vec<Token<'s>>, mem: &'m Memory<'s, 'm>) -> Self {
+    pub fn new(tokens: Vec<Token<'s>>, mem: &'m mut Memory<'s>) -> Self {
         Parser {
             tokens: tokens,
             start: 0,
@@ -20,11 +20,11 @@ impl<'s, 'm> Parser<'s, 'm> {
 
     // sexpr ::= int | float | symbol | string | '(' ')' | '(' sexpr (sexpr)* ')'
 
-    pub fn parse(&mut self) -> Result<SExpr<'s, 'm>, ParseError> {
+    pub fn parse(mut self) -> Result<SExpr<'s>, ParseError> {
         self.expr()
     }
 
-    fn expr(&mut self) -> Result<SExpr<'s, 'm>, ParseError> {
+    fn expr(&mut self) -> Result<SExpr<'s>, ParseError> {
         match self.advance() {
             None => Err(ParseError { message: "Empty expression", line: 0 }),
             Some(token) => match token {
@@ -36,28 +36,17 @@ impl<'s, 'm> Parser<'s, 'm> {
                     None => Err(ParseError { message: "Missing closing parenthesis", line: 0}),
                     Some(Token::ClosedParen) => { self.advance(); Ok(SExpr::Nil) },
                     _ => {
-                        // let mut head = None;
-                        // let mut tail: Option<SExpr<'s, 'm>> = None;
                         let mut exprs = Vec::new();
                         loop {
                             let previous = self.current;
                             match self.expr() {
-                                Ok(e) => {
-                                    // let curr = SExpr::cons(self.mem, e, SExpr::Nil); //self.mem.alloc(Object::Pair(e, SExpr::Nil));
-                                    // match tail {
-                                    //     None => head = Some(curr),
-                                    //     Some(tail_loc) => tail_loc.set_cdr(curr).expect("tail not pair"),
-                                    // }
-                                    // tail = Some(curr);
-                                    // println!("{:?}", e);
-                                    exprs.push(e);
-                                },
+                                Ok(e) => exprs.push(e), 
                                 Err(_) => { self.current = previous; break }
                             }
                         }
                         println!("{:?}", exprs);
                         match self.advance() {
-                            Some(Token::ClosedParen) => Ok(SExpr::from_vec(self.mem, exprs).unwrap()),
+                            Some(Token::ClosedParen) => Ok(self.mem.list_from_vec(exprs).unwrap()), // unimplemented!(), //Ok(SExpr::from_vec(self.mem, exprs).unwrap()),
                             _ => Err(ParseError { message: "Missing closing parenthesis", line: 0}),
                         }
                     }
@@ -108,19 +97,18 @@ mod tests {
         };
     }
 
-    macro_rules! parse_ok_fn {
-        ( $( ($left:expr, $right:expr) ),* )  => {
-            $({
-                let scanner = Scanner::new($left);
-                let tokens = scanner.scan_tokens().ok().unwrap();
-                let mut mem = Memory::new(100);
-                let mut parser = Parser::new(tokens, &mut mem);
-                let res = parser.parse();
-                assert!(res.is_ok());
-                $right(res.unwrap());
-            })*
+    macro_rules! parse {
+        ( $s:expr, $e:ident, $mem:ident )  => {
+            let scanner = Scanner::new($s);
+            let tokens = scanner.scan_tokens().ok().unwrap();
+            let mut $mem = Memory::new(100);
+            let parser = Parser::new(tokens, &mut $mem);
+            let res = parser.parse();
+            let $e = SExpr::Nil; //res.unwrap();
         };
     }
+
+    // fn do_parse<'s>(s: &'static str) -> (SExpr<'s>, Mem$mem$mem$memory<'s, )
 
     // fn parse_err<'a>(s: &'a str) {
     //     let scanner = Scanner::new(s);
@@ -131,11 +119,11 @@ mod tests {
     //     assert!(res.is_err());
     // }
 
-    fn f<'s, 'm>(x: f64) -> SExpr<'s, 'm> { SExpr::Float(x) }
-    fn i<'s, 'm>(x: i64) -> SExpr<'s, 'm> { SExpr::Int(x) }
-    fn sy<'s, 'm>(x: &'s str) -> SExpr<'s, 'm> { SExpr::Sym(x) }
-    fn st<'s, 'm>(x: &'s str) -> SExpr<'s, 'm> { SExpr::Str(x) }
-    fn n<'s, 'm>() -> SExpr<'s, 'm> { SExpr::Nil }
+    fn f<'s>(x: f64) -> SExpr<'s> { SExpr::Float(x) }
+    fn i<'s>(x: i64) -> SExpr<'s> { SExpr::Int(x) }
+    fn sy<'s>(x: &'s str) -> SExpr<'s> { SExpr::Sym(x) }
+    fn st<'s>(x: &'s str) -> SExpr<'s> { SExpr::Str(x) }
+    fn n<'s>() -> SExpr<'s> { SExpr::Nil }
 
     #[test]
     fn test_values() {
@@ -150,19 +138,32 @@ mod tests {
 
     #[test]
     fn test_exprs() {
-        parse_ok_fn![
-            ("123", |x| assert_eq!(x, i(123))),
-            ("(+)", |x: SExpr| assert_eq!(x.to_vec().unwrap(), vec![sy("+")])),
-            ("(+ 1 2)", |x: SExpr| {
-                assert_eq!(x.to_vec().unwrap(), vec![sy("+"), i(1), i(2)])
-            }),
-            ("(+ (+ 1 2) 3)", |x: SExpr| {
-                let a = x.to_vec().unwrap();
-                assert_eq!(a[0], sy("+"));
-                assert_eq!(a[2], i(3));
-                assert_eq!(a[1].to_vec().unwrap(), vec![sy("+"), i(1), i(2)]);
-            })
-        ];
+        let mut mem = Memory::new(100);
+        let scanner = Scanner::new("(+)");
+        let tokens = scanner.scan_tokens().unwrap();
+        let parser = Parser::new(tokens, &mut mem);
+        let res = parser.parse();
+        assert_eq!(mem.vec_from_list(res.unwrap()).unwrap(), vec![sy("+")]);
+        // assert_eq!(mem.vec_from_list(res).unwrap(), vec![sy("+")]);
+        // {
+        //     parse!("(+)", x, mem);
+        //     assert_eq!(mem.vec_from_list(x).unwrap(), vec![sy("+")])
+        // }
+        // let (x, mem) = parse!("(+)");
+        // assert_eq!(mem.vec_from_list(x).unwrap(), vec![sy("+")]);
+        // parse_ok_fn![
+        //     ("123", |x, _| assert_eq!(x, i(123))),
+        //     ("(+)", |x: SExpr, mem: Memory| assert_eq!(mem.vec_from_list(x).unwrap(), vec![sy("+")])),
+        //     ("(+ 1 2)", |x: SExpr, mem: Memory| {
+        //         assert_eq!(mem.vec_from_list(x).unwrap(), vec![sy("+"), i(1), i(2)])
+        //     }),
+        //     ("(+ (+ 1 2) 3)", |x: SExpr, mem: Memory| {
+        //         let a = mem.vec_from_list(x).unwrap();
+        //         assert_eq!(a[0], sy("+"));
+        //         assert_eq!(a[2], i(3));
+        //         assert_eq!(mem.vec_from_list(a[1]).unwrap(), vec![sy("+"), i(1), i(2)]);
+        //     })
+        // ];
     }
     // #[test]
     // fn test_err() {
