@@ -42,7 +42,7 @@ pub struct Scanner<'a> {
 impl<'a> Scanner<'a> {
     pub fn new(source: &'a str) -> Self {
         Scanner {
-            source: source,
+            source,
             iter: source.chars().peekable(),
             start: 0,
             current: 0,
@@ -56,7 +56,7 @@ impl<'a> Scanner<'a> {
             self.start = self.current;
             self.scan_token()?;
         }
-        return Ok(self.tokens);
+        Ok(self.tokens)
     }
 
     fn parse_err(&self, message: &'static str) -> Result<(), ParseError> {

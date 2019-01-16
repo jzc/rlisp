@@ -9,29 +9,24 @@ pub struct Interpreter<'s> {
 
 impl<'s> Interpreter<'s> {
     pub fn new(memsize: usize) -> Self {
-        let mut mem = Memory::new(memsize);
-        let mut env = Environment::new(SExpr::Nil);
-        env.set("+", mem.alloc(Object::PrimitiveProcedure(Primitive::Add)));
-        let initial_env = mem.alloc(Object::Env(env));
-        Interpreter { mem, initial_env }
+        let mut obj = Interpreter { mem: Memory::new(memsize), initial_env: SExpr::Nil };
+        obj.setup_intial_env();
+        obj
     }
 
-//     pub fn setup_intial_env(&'m mut self) {
-//         let mut env = Environment::new(SExpr::Nil);
-
-//         env.set("+", SExpr::new_object(&self.mem, Object::PrimitiveProcedure(Interpreter::add)));
-
-//         self.initial_env = SExpr::new_object(&self.mem, Object::Env(env));
-//     }
-
-//     fn add(x: SExpr<'s, 'm>) -> SExpr<'s, 'm> {
-//         unimplemented!()
-//     }
+    pub fn setup_intial_env(&mut self) {
+        let mut env = Environment::new(SExpr::Nil);
+        env.set("+", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Add)));
+        env.set("-", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Sub)));
+        env.set("*", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Mul)));
+        env.set("/", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Div)));
+        self.initial_env = self.mem.alloc(Object::Env(env));
+    }
 
     pub fn eval_string(&mut self, s: &'s str) -> Result<SExpr<'s>, &'static str> {
         let scanner = Scanner::new(s);
         let tokens = scanner.scan_tokens().expect("scan err");
-        let mut parser = Parser::new(tokens, &mut self.mem);
+        let parser = Parser::new(tokens, &mut self.mem);
         let expr = parser.parse().expect("parse err");
         self.eval(expr)
     }
@@ -95,21 +90,54 @@ impl<'s> Interpreter<'s> {
         let vec_op_evalr: Result<Vec<SExpr<'s>>, &'static str> = vec_op.iter().map(|&e| self._eval(e, env)).collect();
         vec_op_evalr
         // self.mem.list_from_vec(vec_op_evalr?).or(Ok(SExpr::Nil))
-    }
+    }    
+
+    
 
     fn eval_primitive(&self, p: Primitive, operands: Vec<SExpr<'s>>) -> Result<SExpr<'s>, &'static str> {
+        macro_rules! arithmetic_fold { 
+            ( $op_iter:expr, $initial:expr, $op:tt) => {
+                $op_iter.try_fold($initial, |acc, &e| match (acc, e) {
+                    (SExpr::Int(acc), SExpr::Int(x)) => Ok(SExpr::Int(acc $op x)),
+                    (SExpr::Int(acc), SExpr::Float(x)) => Ok(SExpr::Float(acc as f64 $op x)),
+                    (SExpr::Float(acc), SExpr::Int(x)) => Ok(SExpr::Float(acc $op x as f64)),
+                    (SExpr::Float(acc), SExpr::Float(x)) => Ok(SExpr::Float(acc $op x)),
+                    _ => Err("Type error")
+                })
+            };
+        }
+
+        macro_rules! afold1 {
+            ( $operands:expr, $initial:expr, $op:tt ) => {
+                arithmetic_fold!($operands.iter(), $initial, $op)
+            };
+        }
+
+        macro_rules! afold2 {
+            ( $operands:expr, $op:tt ) => {
+                {
+                    let operands = $operands;
+                    if operands.len() >= 1 {
+                        let mut iter = operands.iter();
+                        let first = *iter.next().unwrap();
+                        arithmetic_fold!(iter, first, $op)
+                    } else {
+                        Err("Not enough operands")
+                    }
+                }
+            };
+        }
+
         match p {
-            Primitive::Add => operands.iter().try_fold(SExpr::Int(0), |acc, &e| match (acc, e) {
-                (SExpr::Int(acc), SExpr::Int(x)) => Ok(SExpr::Int(acc+x)),
-                (SExpr::Int(acc), SExpr::Float(x)) => Ok(SExpr::Float(acc as f64+x)),
-                (SExpr::Float(acc), SExpr::Int(x)) => Ok(SExpr::Float(acc+x as f64)),
-                (SExpr::Float(acc), SExpr::Float(x)) => Ok(SExpr::Float(acc+x)),
-                _ => Err("Type error")
-            }),
-            Primitive::Sub => unimplemented!(),
+            Primitive::Add => afold1!(operands, SExpr::Int(0), +),
+            Primitive::Sub => afold2!(operands, -),
+            Primitive::Mul => afold1!(operands, SExpr::Int(1), *),
+            Primitive::Div => afold2!(operands, /),
         }
     }
 }
+
+
 
 #[cfg(test)]
 mod tests {
@@ -137,9 +165,9 @@ mod tests {
     }
 
     #[test]
-    fn test_add() {
-        let mut interpreter = Interpreter::new(500);
-        let mut test = |a, b| {
+    fn test_arithmetic() {
+        let test = |a, b| {
+            let mut interpreter = Interpreter::new(500);
             let res = interpreter.eval_string(a);
             assert!(res.is_ok(), "{:?}", res.err().unwrap());
             assert_eq!(res.ok().unwrap(), b);
@@ -147,5 +175,16 @@ mod tests {
         test("(+ 1 2)", i(3));
         test("(+)", i(0));
         test("(+ (+ 1 2) (+ 3 4))", i(10));
+        test("(+ 1 2 3 4 5 6 7 8)", i((1..9).fold(0, |acc, x| acc+x)));
+        test("(+ 1.0 0.5)", f(1.5));
+        test("(+ 1 0.5)", f(1.5));
+        test("(+ 1.0 2)", f(3.0));
+
+        test("(- 5 3)", i(2));
+        test("(- 10 1 2 3)", i(4));
+
+        test("(* 5 3)", i(15));
+
+        test("(/ 5.0 2)", f(2.5));
     }
 }

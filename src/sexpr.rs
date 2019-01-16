@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::cell::{RefCell, Cell};
-use crate::parser::Parser;
-use crate::scanner::{Scanner, ParseError};
+// use std::cell::{RefCell, Cell};
+// use crate::parser::Parser;
+// use crate::scanner::{Scanner, ParseError};
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum SExpr<'s> {
@@ -15,7 +15,7 @@ pub enum SExpr<'s> {
 
 #[derive(PartialEq, Debug, Copy, Clone)]
 pub enum Primitive {
-    Add, Sub
+    Add, Sub, Mul, Div
 }
 
 #[derive(PartialEq, Debug, Clone)]
@@ -38,7 +38,7 @@ impl<'s> Environment<'s> {
     pub fn new(enclosing: SExpr<'s>) -> Self {
         Environment {
             env: HashMap::new(),
-            enclosing: enclosing,
+            enclosing,
         }
     }
 

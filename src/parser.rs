@@ -11,10 +11,10 @@ pub struct Parser<'s, 'm> {
 impl<'s, 'm> Parser<'s, 'm> {
     pub fn new(tokens: Vec<Token<'s>>, mem: &'m mut Memory<'s>) -> Self {
         Parser {
-            tokens: tokens,
+            tokens,
             start: 0,
             current: 0,
-            mem: mem,
+            mem,
         }
     }
 
@@ -94,17 +94,6 @@ mod tests {
                 assert!(res.is_ok());
                 assert_eq!(res.unwrap(), $right);
             })*
-        };
-    }
-
-    macro_rules! parse {
-        ( $s:expr, $e:ident, $mem:ident )  => {
-            let scanner = Scanner::new($s);
-            let tokens = scanner.scan_tokens().ok().unwrap();
-            let mut $mem = Memory::new(100);
-            let parser = Parser::new(tokens, &mut $mem);
-            let res = parser.parse();
-            let $e = SExpr::Nil; //res.unwrap();
         };
     }
 
