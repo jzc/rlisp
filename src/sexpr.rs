@@ -100,7 +100,7 @@ impl<'s> Memory<'s>  {
     pub fn list_from_vec(&mut self, vec: Vec<SExpr<'s>>) -> Result<SExpr<'s>, ()> {
         let head = match vec.get(0) {
             Some(&e) => self.cons(e, SExpr::Nil),
-            None => return Err(()), // input vec has length 0
+            None => return Ok(SExpr::Nil), // input vec has length 0
         };
         let mut tail = head;
         for &e in &vec[1..] {
@@ -140,6 +140,18 @@ impl<'s> Memory<'s>  {
 
     pub fn get(&self, addr: usize) -> &Object<'s> {
         &self.mem[addr]
+    }
+
+    pub fn get_nth_ref(&self, e: SExpr<'s>, n: usize) -> Result<SExpr<'s>, ()> {
+        let mut curr = e;
+        for i in 0..n {
+            if let SExpr::Ref(addr) = curr {
+                if let &Object::Pair(_, right) = &self.mem[addr] {
+                    curr = right;
+                } else { return Err(()); }
+            } else { return Err(()); }
+        }
+        Ok(curr)
     }
 }
 

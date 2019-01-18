@@ -55,6 +55,7 @@ impl<'s> Interpreter<'s> {
                 Object::Pair(SExpr::Sym("define"), _) => unimplemented!(),
                 Object::Pair(SExpr::Sym("if"), _) => unimplemented!(),
                 Object::Pair(SExpr::Sym("begin"), _) => unimplemented!(),
+                &Object::Pair(SExpr::Sym("lambda"), e) => self.make_procedure(e, env),
                 Object::Pair(SExpr::Sym("cond"), _) => unimplemented!(),
                 // application
                 &Object::Pair(operator, operands) => self.eval_application(operator, operands, env),
@@ -74,27 +75,28 @@ impl<'s> Interpreter<'s> {
     fn eval_application(&mut self, operator: SExpr<'s>, operands: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
         match self._eval(operator, env)? {
             SExpr::Ref(addr) => match self.mem.get(addr) {
-                &Object::PrimitiveProcedure(p) => {
-                    let ops = self.eval_operands(operands, env)?;
-                    self.eval_primitive(p, ops)
+                &Object::PrimitiveProcedure(procd) => {
+                    let ops = self.eval_sequence(operands, env)?;
+                    self.eval_primitive(procd, ops)
                 }
-                Object::CompoundProcedure(l) => unimplemented!(),
+                &Object::CompoundProcedure(procd) => {
+                    let ops = self.eval_sequence(operands, env)?;
+                    self.eval_compound(procd, ops)
+                },
                 _ => Err("Applying non procedure"),
             }
             _ => Err("Applying non procedure"),
         }
     }
 
-    fn eval_operands(&mut self, operands: SExpr<'s>, env: SExpr<'s>) -> Result<Vec<SExpr<'s>>, &'static str> {
+    fn eval_sequence(&mut self, operands: SExpr<'s>, env: SExpr<'s>) -> Result<Vec<SExpr<'s>>, &'static str> {
         let vec_op = self.mem.vec_from_list(operands).or(Err("Ill formed list"))?;
         let vec_op_evalr: Result<Vec<SExpr<'s>>, &'static str> = vec_op.iter().map(|&e| self._eval(e, env)).collect();
         vec_op_evalr
         // self.mem.list_from_vec(vec_op_evalr?).or(Ok(SExpr::Nil))
     }    
 
-    
-
-    fn eval_primitive(&self, p: Primitive, operands: Vec<SExpr<'s>>) -> Result<SExpr<'s>, &'static str> {
+    fn eval_primitive(&self, procd: Primitive, operands: Vec<SExpr<'s>>) -> Result<SExpr<'s>, &'static str> {
         macro_rules! arithmetic_fold { 
             ( $op_iter:expr, $initial:expr, $op:tt) => {
                 $op_iter.try_fold($initial, |acc, &e| match (acc, e) {
@@ -128,12 +130,40 @@ impl<'s> Interpreter<'s> {
             };
         }
 
-        match p {
+        match procd {
             Primitive::Add => afold1!(operands, SExpr::Int(0), +),
             Primitive::Sub => afold2!(operands, -),
             Primitive::Mul => afold1!(operands, SExpr::Int(1), *),
             Primitive::Div => afold2!(operands, /),
         }
+    }
+
+    fn make_procedure(&mut self, e: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
+        let form = dbg!(self.mem.vec_from_list(e).or(Err("Ill formed special form")))?;
+        if form.len() < 1 { return Err("Ill formed special form"); }
+        // if let SExpr::Ref(_) = form[0] {} else { return Err("Ill formed special form"); }
+        let params = form[0];
+        let body = self.mem.get_nth_ref(e, 1).unwrap();
+        let list = self.mem.list_from_vec(vec![params, body, env]).unwrap();
+        let r = self.mem.alloc(Object::CompoundProcedure(list));
+        Ok(r)
+    }
+
+    fn eval_compound(&mut self, procd: SExpr<'s>, operands: Vec<SExpr<'s>>) -> Result<SExpr<'s>, &'static str> {
+        let vec = self.mem.vec_from_list(procd).or(Err("Ill formed procedure"))?;
+        let params = vec[0];
+        let body = vec[1];
+        let env = vec[2];
+        let param_vec = self.mem.vec_from_list(params).or(Err("something"))?;
+        let mut envp = Environment::new(env);
+        for (param, arg) in param_vec.iter().zip(operands) {
+            if let &SExpr::Sym(s) = param {
+                envp.set(s, arg)
+            }
+        }
+        let renvp = self.mem.alloc(Object::Env(envp));
+        let res = self.eval_sequence(body, renvp)?;
+        Ok(res[res.len()-1])
     }
 }
 
@@ -184,7 +214,24 @@ mod tests {
         test("(- 10 1 2 3)", i(4));
 
         test("(* 5 3)", i(15));
+        test("(*)", i(1));
 
         test("(/ 5.0 2)", f(2.5));
+    }
+
+    #[test]
+    fn test_lambda() {
+        let test = |a, b| {
+            let mut interpreter = Interpreter::new(500);
+            let res = interpreter.eval_string(a).expect("err");
+            // assert!(res.is_ok(), "{:?}", res.err().unwrap());
+            assert_eq!(res, b);
+        };
+
+        test("((lambda (a) a) 5)", i(5));
+        test("((lambda (a b) (+ a b)) 5 3)", i(8));
+        test("((lambda () 5))", i(5));
+        test("((lambda () ()))", SExpr::Nil);
+        test("(((lambda (a) (lambda () a)) 1e3))", f(1e3));
     }
 }
