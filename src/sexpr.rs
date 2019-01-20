@@ -138,6 +138,17 @@ impl<'s> Memory<'s>  {
         }
     }
 
+    pub fn env_set(&mut self, env: SExpr<'s>, k: &'s str, e: SExpr<'s>) -> Result<(), ()> {
+        match env {
+            SExpr::Ref(addr) => match &mut self.mem[addr] {
+                &mut Object::Env(ref mut env) => { env.set(k, e); Ok(()) },
+                _ => Err(()), // type error
+            }
+            SExpr::Nil => Err(()), // not found
+            _ => Err(()), // type error
+        }
+    }
+
     pub fn get(&self, addr: usize) -> &Object<'s> {
         &self.mem[addr]
     }

@@ -52,9 +52,12 @@ impl<'s> Interpreter<'s> {
                 // special forms
                 Object::Pair(SExpr::Sym("quote"), _) => unimplemented!(),
                 Object::Pair(SExpr::Sym("set!"), _) => unimplemented!(),
-                Object::Pair(SExpr::Sym("define"), _) => unimplemented!(),
+                &Object::Pair(SExpr::Sym("define"), e) => self.eval_define(e, env),
                 Object::Pair(SExpr::Sym("if"), _) => unimplemented!(),
-                Object::Pair(SExpr::Sym("begin"), _) => unimplemented!(),
+                &Object::Pair(SExpr::Sym("begin"), e) => {
+                    let seq = self.eval_sequence(e, env)?;
+                    Ok(seq[seq.len()-1])
+                }
                 &Object::Pair(SExpr::Sym("lambda"), e) => self.make_procedure(e, env),
                 Object::Pair(SExpr::Sym("cond"), _) => unimplemented!(),
                 // application
@@ -165,6 +168,25 @@ impl<'s> Interpreter<'s> {
         let res = self.eval_sequence(body, renvp)?;
         Ok(res[res.len()-1])
     }
+
+    fn eval_define(&mut self, form: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
+        let vec = self.mem.vec_from_list(form).or(Err("ill formed form"))?;
+        match vec.len() {
+            l if l < 2 => Err("ill formed define"),
+            // variable definition
+            2 => if let SExpr::Sym(ident) = vec[0] {
+                let evaled = self._eval(vec[1], env)?;
+                self.mem.env_set(env, ident, evaled).or(Err("err"))?;
+                Ok(SExpr::Sym(ident))
+            } else {
+                Err("expected symbol")
+            }
+            // unction definition
+            _ => {
+                unimplemented!()
+            },
+        }
+    }
 }
 
 
@@ -233,5 +255,22 @@ mod tests {
         test("((lambda () 5))", i(5));
         test("((lambda () ()))", SExpr::Nil);
         test("(((lambda (a) (lambda () a)) 1e3))", f(1e3));
+        test("(begin 1 2 3)", i(3));
+    }
+
+    #[test]
+    fn test_begin() {
+        let test = |a, b| {
+            let mut interpreter = Interpreter::new(500);
+            let res = interpreter.eval_string(a).expect("err");
+            // assert!(res.is_ok(), "{:?}", res.err().unwrap());
+            assert_eq!(res, b);
+        };
+        test("(begin (define a 1) a)", i(1));
+        test("(begin (define a 1) (define b a) b)", i(1));
+        test("(begin (define a 1) (define b 2) (+ a b))", i(3));
+        test("(begin (define a 1) (define b 2) (+ a b))", i(3));
+        test("(begin (define a (lambda () 5)) (a))", i(5));
+        test("(begin (define a 5) (define f (lambda (a) a)) (f a))", i(5));
     }
 }
