@@ -307,9 +307,11 @@ mod tests {
 
     macro_rules! eval_ok {
         ($s:expr, $ex:expr) => {
-            let mut interpreter = Interpreter::new(500);
-            let res = interpreter.eval_string($s).expect("err");
-            assert_eq!(res, $ex);
+            {
+                let mut interpreter = Interpreter::new(500);
+                let res = interpreter.eval_string($s).expect("err");
+                assert_eq!(res, $ex);
+            }
         };
     }
 
@@ -367,6 +369,7 @@ mod tests {
         eval_ok!("(begin (define (fn a) a) (fn 5))", i(5));
         eval_ok!("(begin (define a 5) (define (fn) a) (fn))", i(5));
         eval_ok!("(begin (define a 5) (define (fn a) a) (fn 6))", i(6));
+        eval_ok!("(begin (define (fn a) (define (closure) a) closure) ((fn 5)))", i(5));
     }
 
     #[test]
@@ -421,5 +424,21 @@ mod tests {
         eval_ok!("(if #f 1 2)", i(2));
         eval_ok!("(if (= 1 1) 1 2)", i(1));
         eval_ok!("(if (= 1 2) 1 2)", i(2));
+    }
+
+    #[test]
+    fn test_recursion() {
+        eval_ok!("
+            (begin
+                (define (factorial n)
+                    (if (= n 1)
+                        1
+                        (* n (factorial (- n 1)))
+                    )
+                )
+                (factorial 10)
+            )
+        ", i((1..11).fold(1, |a,b| a*b)))
+        
     }
 }
