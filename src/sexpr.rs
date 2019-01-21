@@ -2,20 +2,17 @@ use std::collections::HashMap;
 // use std::cell::{RefCell, Cell};
 // use crate::parser::Parser;
 // use crate::scanner::{Scanner, ParseError};
+use crate::interpreter::Primitive;
 
 #[derive(PartialEq, Copy, Clone, Debug)]
 pub enum SExpr<'s> {
     Nil,
     Int(i64),
     Float(f64),
+    Bool(bool),
     Str(&'s str),
     Sym(&'s str),
     Ref(usize),
-}
-
-#[derive(PartialEq, Debug, Copy, Clone)]
-pub enum Primitive {
-    Add, Sub, Mul, Div
 }
 
 #[derive(PartialEq, Debug, Clone)]

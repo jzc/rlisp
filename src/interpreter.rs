@@ -1,6 +1,12 @@
-use crate::sexpr::{SExpr, Memory, Object, Primitive, Environment};
+use crate::sexpr::{SExpr, Memory, Object, Environment};
 use crate::scanner::Scanner;
 use crate::parser::Parser;
+
+#[derive(PartialEq, Debug, Copy, Clone)]
+pub enum Primitive {
+    Add, Sub, Mul, Div, 
+    Eql, Gt, Gte, Lt, Lte,
+}
 
 pub struct Interpreter<'s> {
     mem: Memory<'s>,
@@ -20,6 +26,11 @@ impl<'s> Interpreter<'s> {
         env.insert("-", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Sub)));
         env.insert("*", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Mul)));
         env.insert("/", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Div)));
+        env.insert("=",  self.mem.alloc(Object::PrimitiveProcedure(Primitive::Eql)));
+        env.insert("<",  self.mem.alloc(Object::PrimitiveProcedure(Primitive::Lt)));
+        env.insert("<=", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Lte)));
+        env.insert(">",  self.mem.alloc(Object::PrimitiveProcedure(Primitive::Gt)));
+        env.insert(">=", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Gte)));
         self.initial_env = self.mem.alloc(Object::Env(env));
     }
 
@@ -40,6 +51,7 @@ impl<'s> Interpreter<'s> {
             // values
             v @ SExpr::Int(_) => Ok(v),
             v @ SExpr::Float(_) => Ok(v),
+            v @ SExpr::Bool(_) => Ok(v),
             v @ SExpr::Str(_) => Ok(v),
             v @ SExpr::Nil => Ok(v),
             // variable
@@ -53,7 +65,7 @@ impl<'s> Interpreter<'s> {
                 Object::Pair(SExpr::Sym("quote"), _) => unimplemented!(),
                 &Object::Pair(SExpr::Sym("set!"), e) => self.eval_set(e, env),
                 &Object::Pair(SExpr::Sym("define"), e) => self.eval_define(e, env),
-                Object::Pair(SExpr::Sym("if"), _) => unimplemented!(),
+                &Object::Pair(SExpr::Sym("if"), e) => self.eval_if(e, env),
                 &Object::Pair(SExpr::Sym("begin"), e) => {
                     let seq = self.eval_sequence(e, env)?;
                     Ok(seq[seq.len()-1])
@@ -132,12 +144,51 @@ impl<'s> Interpreter<'s> {
                 }
             };
         }
+        
+        macro_rules! comparison_fold {
+            ( $operands:expr, $op:tt) => {
+                {
+                    let operands = $operands;
+                    if operands.len() == 0 {
+                        Ok(SExpr::Bool(true))
+                    } else {
+                        let mut prev = operands[0];
+                        let mut acc = Ok(true);
+                        for &e in &operands[1..] {
+                            match acc {
+                                Ok(true) => (),
+                                Ok(false) => break,
+                                Err(_) => break,
+                            }
+                            let (accp, prevp) = match (prev, e) {
+                                (SExpr::Int(prev), SExpr::Int(x)) => (Ok(prev $op x), SExpr::Int(x)),
+                                (SExpr::Int(prev), SExpr::Float(x)) => (Ok((prev as f64) $op x), SExpr::Float(x)),
+                                (SExpr::Float(prev), SExpr::Int(x)) => (Ok(prev $op x as f64), SExpr::Int(x)),
+                                (SExpr::Float(prev), SExpr::Float(x)) => (Ok(prev $op x), SExpr::Float(x)),
+                                _ => (Err("Type error"), prev),
+                            };
+                            acc = accp;
+                            prev = prevp;
+                        }
+                        match acc {
+                            Ok(res) => Ok(SExpr::Bool(res)),
+                            Err(s) => Err(s),
+                        }
+                    }
+                }
+            };
+        }
 
         match procd {
             Primitive::Add => afold1!(operands, SExpr::Int(0), +),
             Primitive::Sub => afold2!(operands, -),
             Primitive::Mul => afold1!(operands, SExpr::Int(1), *),
             Primitive::Div => afold2!(operands, /),
+            Primitive::Eql => comparison_fold!(operands, ==),
+            Primitive::Lt  => comparison_fold!(operands, <),
+            Primitive::Lte => comparison_fold!(operands, <=),
+            Primitive::Gt  => comparison_fold!(operands, >),
+            Primitive::Gte => comparison_fold!(operands, >=),
         }
     }
 
@@ -225,6 +276,10 @@ impl<'s> Interpreter<'s> {
             Err("ill formed")
         }
     }
+
+    fn eval_if(&mut self, form: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
+        unimplemented!()
+    }
 }
 
 
@@ -235,6 +290,7 @@ mod tests {
 
     fn f<'s>(x: f64) -> SExpr<'s> { SExpr::Float(x) }
     fn i<'s>(x: i64) -> SExpr<'s> { SExpr::Int(x) }
+    fn b<'s>(x: bool) -> SExpr<'s> { SExpr::Bool(x) }
     fn sy<'s>(x: &'s str) -> SExpr<'s> { SExpr::Sym(x) }
     fn st<'s>(x: &'s str) -> SExpr<'s> { SExpr::Str(x) }
     fn n<'s>() -> SExpr<'s> { SExpr::Nil }
@@ -254,6 +310,8 @@ mod tests {
         eval_ok!("1.0", f(1.0));
         eval_ok!("()", n());
         eval_ok!("\"abc\"", st("abc"));
+        eval_ok!("#t", b(true));
+        eval_ok!("#f", b(false));
     }
 
     #[test]
@@ -305,17 +363,45 @@ mod tests {
     fn test_set() {
         eval_ok!("(begin (define a 1) (set! a 2) a)", i(2));
         eval_ok!("(begin (define a 1) (set! a (+ a 1)) a)", i(2));
-        eval_ok!("(begin (define a 1) (define inc (lambda () (set! a (+ a 1)))) (inc) (inc) a)", i(3));
+        eval_ok!("(begin (define a 1) (define (inc) (set! a (+ a 1))) (inc) (inc) a)", i(3));
         eval_ok!("
             (begin
                 (define a 1)
-                (define inc1 (lambda () (set! a (+ a 1))))
-                (define inc2 (lambda () (set! a (+ a 2))))
+                (define (inc1) (set! a (+ a 1)))
+                (define (inc2) (set! a (+ a 2)))
                 (inc1)
                 (inc2)
                 (inc1)
                 a
             )
         ", i(5));
+    }
+
+    #[test]
+    fn test_comparison() {
+        eval_ok!("(= 1 1)", b(true));
+        eval_ok!("(= 1 1 2)", b(false));
+        eval_ok!("(=)", b(true));
+        eval_ok!("(<)", b(true));
+        eval_ok!("(<=)", b(true));
+        eval_ok!("(>)", b(true));
+        eval_ok!("(>=)", b(true));
+        eval_ok!("(= 1)", b(true));
+        eval_ok!("(< 1 2)", b(true));
+        eval_ok!("(< 1 2.0)", b(true));
+        eval_ok!("(< 1.0 2.0)", b(true));
+        eval_ok!("(< 1.0 2)", b(true));
+        eval_ok!("(< 1.0 2 3.0)", b(true));
+        eval_ok!("(< 1.0 2 2)", b(false));
+        eval_ok!("(< 1.0 2 2.1)", b(true));
+        eval_ok!("(<= 1 1 1)", b(true));
+        eval_ok!("(<= 1 2 2)", b(true));
+        eval_ok!("(<= 1 2 3)", b(true));
+        eval_ok!("(<= 1 2 )", b(true));
+        eval_ok!("(> 2 1 )", b(true));
+        eval_ok!("(> 2 1 1)", b(false));
+        eval_ok!("(>= 2 1 1)", b(true));
+        eval_ok!("(>= 2 1)", b(true));
+        eval_ok!("(>= 2)", b(true));
     }
 }

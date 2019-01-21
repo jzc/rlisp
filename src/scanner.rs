@@ -8,6 +8,7 @@ pub enum Token<'a> {
     ClosedParen,
     Int(i64),
     Float(f64),
+    Bool(bool),
     Str(&'a str),
     Symbol(&'a str),
 }
@@ -54,7 +55,7 @@ impl<'a> Scanner<'a> {
     pub fn scan_tokens(mut self) -> Result<Vec<Token<'a>>, ParseError> {
         while !self.at_end() {
             self.start = self.current;
-            self.scan_token()?;
+            self.token()?;
         }
         Ok(self.tokens)
     }
@@ -63,7 +64,7 @@ impl<'a> Scanner<'a> {
         Err(ParseError { message: message, line: self.line })
     }
 
-    fn scan_token(&mut self) -> Result<(), ParseError> {
+    fn token(&mut self) -> Result<(), ParseError> {
         match self.advance().unwrap() {
             ' ' => Ok(()),
             '\n' => { self.line += 1; Ok(()) }
@@ -73,6 +74,7 @@ impl<'a> Scanner<'a> {
             ch if is_numeric(ch) => self.int(),
             '.' => if self.is_more_token() { self.float(false) } else { self.symbol() }
             '"' => self.string(),
+            '#' => self.bool_(),
             _ => self.symbol(),
         }
     }
@@ -160,6 +162,21 @@ impl<'a> Scanner<'a> {
         Ok(())
     }
 
+    fn bool_(&mut self) -> Result<(), ParseError> {
+        match self.advance() {
+            None => self.parse_err("expected char"),
+            Some(ch) => match ch {
+                't' | 'f' => if self.is_more_token() {
+                    self.parse_err("unexpected char after '#' 1")
+                } else {
+                    self.tokens.push(Token::Bool(ch == 't'));
+                    Ok(())
+                }
+                _ => self.parse_err("unexpected char after '#' 2"),
+            }
+        }
+    }
+
     fn add_int_token(&mut self) {
         let token_str = self.source.get(self.start..self.current).unwrap();
         let parsed = token_str.parse::<i64>().ok().unwrap();
@@ -230,9 +247,8 @@ mod tests {
     }
 
     fn scan_ok(x: &'static str, expected: Vec<Token>) {
-        let res = tokens(x);
-        assert!(res.is_ok());
-        assert_eq!(res.ok().unwrap(), expected);
+        let res = tokens(x).expect("err");
+        assert_eq!(res, expected);
     }
 
     fn scan_err(x: &'static str) {
@@ -246,7 +262,7 @@ mod tests {
         let mut tests = vec![
             ("()", vec![op(), cp()]),
             ("(() (1 2 3))", vec![op(), op(), cp(), op(), i(1), i(2), i(3), cp(), cp()]),
-            ("(#$%-a)", vec![op(), s("#$%-a"), cp()]),
+            ("($%-a)", vec![op(), s("$%-a"), cp()]),
             ("(() () ())", vec![op(), op(), cp(), op(), cp(), op(), cp(), cp()]),
         ];
         let same = vec![
@@ -334,6 +350,17 @@ mod tests {
         ];
 
         for x in errs { scan_err(x); }       
+    }
+
+    #[test]
+    fn test_bool() {
+        scan_ok("#t", vec![Token::Bool(true)]);
+        scan_ok("#f", vec![Token::Bool(false)]);
+        scan_err("#");
+        scan_err("#ta");
+        scan_err("#fa");
+        scan_err("#a");
+        scan_err("#b");
     }
 
     #[test]

@@ -32,6 +32,7 @@ impl<'s, 'm> Parser<'s, 'm> {
                 Token::Float(x) => Ok(SExpr::Float(x)),
                 Token::Str(x) => Ok(SExpr::Str(x)),
                 Token::Symbol(x) => Ok(SExpr::Sym(x)),
+                Token::Bool(x) => Ok(SExpr::Bool(x)),
                 Token::OpenParen => match self.peek() {
                     None => Err(ParseError { message: "Missing closing parenthesis", line: 0}),
                     Some(Token::ClosedParen) => { self.advance(); Ok(SExpr::Nil) },
@@ -110,6 +111,7 @@ mod tests {
 
     fn f<'s>(x: f64) -> SExpr<'s> { SExpr::Float(x) }
     fn i<'s>(x: i64) -> SExpr<'s> { SExpr::Int(x) }
+    fn b<'s>(x: bool) -> SExpr<'s> { SExpr::Bool(x) }
     fn sy<'s>(x: &'s str) -> SExpr<'s> { SExpr::Sym(x) }
     fn st<'s>(x: &'s str) -> SExpr<'s> { SExpr::Str(x) }
     fn n<'s>() -> SExpr<'s> { SExpr::Nil }
@@ -121,7 +123,9 @@ mod tests {
             ("1.0", f(1.0)),
             ("abc", sy("abc")),
             ("\"abc\"", st("abc")),
-            ("()", n())
+            ("()", n()),
+            ("#t", b(true)),
+            ("#f", b(false))
         ];
     }
 
