@@ -49,8 +49,17 @@ impl<'s> Environment<'s> {
         }
     }
 
-    pub fn set(&mut self, k: &'s str, e: SExpr<'s>) {
+    pub fn insert(&mut self, k: &'s str, e: SExpr<'s>) {
         self.env.insert(k, e);
+    }
+
+    pub fn set<'m>(&mut self, k: &'s str, e: SExpr<'s>, mem: &'m mut Memory<'s>) -> Result<(), ()> {
+        if self.env.contains_key(k) {
+            self.insert(k, e);
+            Ok(())
+        } else {
+            mem.env_set(self.enclosing, k, e)
+        }
     }
 }
 
@@ -138,14 +147,29 @@ impl<'s> Memory<'s>  {
         }
     }
 
-    pub fn env_set(&mut self, env: SExpr<'s>, k: &'s str, e: SExpr<'s>) -> Result<(), ()> {
+    pub fn env_insert(&mut self, env: SExpr<'s>, k: &'s str, e: SExpr<'s>) -> Result<(), ()> {
         match env {
             SExpr::Ref(addr) => match &mut self.mem[addr] {
-                &mut Object::Env(ref mut env) => { env.set(k, e); Ok(()) },
+                &mut Object::Env(ref mut env) => { env.insert(k, e); Ok(()) },
                 _ => Err(()), // type error
             }
             SExpr::Nil => Err(()), // not found
             _ => Err(()), // type error
+        }
+    }
+
+    pub fn env_set(&mut self, env: SExpr<'s>, k: &'s str, v: SExpr<'s>) -> Result<(), ()> {
+        match env {
+            SExpr::Ref(addr) => match ::std::mem::replace(&mut self.mem[addr], Object::Empty(None)) { 
+                Object::Env(mut env) => { 
+                    let res = env.set(k, v, self);
+                    self.mem[addr] = Object::Env(env);
+                    res
+                },
+                _ => Err(()),
+            }
+            SExpr::Nil => Err(()), // not found
+            _ => Err(()) // type error
         }
     }
 
@@ -178,7 +202,7 @@ mod tests {
         let mut mem = Memory::new(100);
 
         let mut env1 = Environment::new(SExpr::Nil);
-        env1.set("test", i(1));
+        env1.insert("test", i(1));
         let env1r = mem.alloc(Object::Env(env1));
 
         assert_eq!(mem.env_get("test", env1r).unwrap(), i(1));
@@ -189,7 +213,7 @@ mod tests {
         assert_eq!(mem.env_get("test", env2r).unwrap(), i(1));
 
         let mut env3 = Environment::new(env1r);
-        env3.set("test", i(2));
+        env3.insert("test", i(2));
         let env3r = mem.alloc(Object::Env(env3));
 
         assert_eq!(mem.env_get("test", env3r).unwrap(), i(2));   
