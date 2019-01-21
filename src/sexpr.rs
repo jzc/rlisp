@@ -15,6 +15,15 @@ pub enum SExpr<'s> {
     Ref(usize),
 }
 
+impl<'s> SExpr<'s> {
+    pub fn as_bool(&self) -> bool {
+        match *self {
+            SExpr::Bool(b) => b,
+            _ => true,
+        }
+    }
+}
+
 #[derive(PartialEq, Debug, Clone)]
 pub enum Object<'s> {
     Pair(SExpr<'s>, SExpr<'s>),

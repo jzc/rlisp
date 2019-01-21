@@ -278,7 +278,17 @@ impl<'s> Interpreter<'s> {
     }
 
     fn eval_if(&mut self, form: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
-        unimplemented!()
+        let form_vec = self.mem.vec_from_list(form).or(Err("ill formed"))?;
+        if form_vec.len() == 3 {
+            let cond = self._eval(form_vec[0], env)?;
+            if cond.as_bool() {
+                self._eval(form_vec[1], env)
+            } else {
+                self._eval(form_vec[2], env)
+            }
+        } else {
+            Err("ill formed")
+        }
     }
 }
 
@@ -403,5 +413,13 @@ mod tests {
         eval_ok!("(>= 2 1 1)", b(true));
         eval_ok!("(>= 2 1)", b(true));
         eval_ok!("(>= 2)", b(true));
+    }
+
+    #[test]
+    fn test_if() {
+        eval_ok!("(if #t 1 2)", i(1));
+        eval_ok!("(if #f 1 2)", i(2));
+        eval_ok!("(if (= 1 1) 1 2)", i(1));
+        eval_ok!("(if (= 1 2) 1 2)", i(2));
     }
 }
