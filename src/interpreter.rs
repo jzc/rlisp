@@ -58,7 +58,7 @@ impl<'s> Interpreter<'s> {
                     let seq = self.eval_sequence(e, env)?;
                     Ok(seq[seq.len()-1])
                 }
-                &Object::Pair(SExpr::Sym("lambda"), e) => self.make_procedure(e, env),
+                &Object::Pair(SExpr::Sym("lambda"), e) => self.eval_lambda(e, env),
                 Object::Pair(SExpr::Sym("cond"), _) => unimplemented!(),
                 // application
                 &Object::Pair(operator, operands) => self.eval_application(operator, operands, env),
@@ -141,15 +141,26 @@ impl<'s> Interpreter<'s> {
         }
     }
 
-    fn make_procedure(&mut self, e: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
-        let form = dbg!(self.mem.vec_from_list(e).or(Err("Ill formed special form")))?;
-        if form.len() < 1 { return Err("Ill formed special form"); }
-        // if let SExpr::Ref(_) = form[0] {} else { return Err("Ill formed special form"); }
-        let params = form[0];
-        let body = self.mem.get_nth_ref(e, 1).unwrap();
-        let list = self.mem.list_from_vec(vec![params, body, env]).unwrap();
-        let r = self.mem.alloc(Object::CompoundProcedure(list));
-        Ok(r)
+    fn eval_lambda(&mut self, form: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
+        let form_vec = self.mem.vec_from_list(form).or(Err("ill formed"))?;
+        if form_vec.len() < 1 { 
+            Err("ill formed")
+        } else {
+            let params = form_vec[0];
+            let body = self.mem.get_nth_ref(form, 1).unwrap();
+            self.make_procedure(params, body, env)
+        }
+    }
+
+    fn make_procedure(&mut self, params: SExpr<'s>, body: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
+        let param_vec = self.mem.vec_from_list(params).or(Err("err"))?;
+        if param_vec.iter().any(|e| if let SExpr::Sym(_) = e { false } else { true }) {
+            Err("ill formed")
+        } else {
+            let list = self.mem.list_from_vec(vec![params, body, env]).unwrap();
+            let r = self.mem.alloc(Object::CompoundProcedure(list));
+            Ok(r)
+        }
     }
 
     fn eval_compound(&mut self, procd: SExpr<'s>, operands: Vec<SExpr<'s>>) -> Result<SExpr<'s>, &'static str> {
@@ -171,20 +182,32 @@ impl<'s> Interpreter<'s> {
 
     fn eval_define(&mut self, form: SExpr<'s>, env: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
         let vec = self.mem.vec_from_list(form).or(Err("ill formed form"))?;
-        match vec.len() {
-            l if l < 2 => Err("ill formed define"),
-            // variable definition
-            2 => if let SExpr::Sym(ident) = vec[0] {
-                let evaled = self._eval(vec[1], env)?;
-                self.mem.env_insert(env, ident, evaled).or(Err("err"))?;
-                Ok(SExpr::Sym(ident))
-            } else {
-                Err("expected symbol")
+        if vec.len() < 2 {
+            Err("ill formed define")
+        } else {
+            match vec[0] {
+                SExpr::Sym(ident) => if vec.len() == 2 {
+                    let evaled = self._eval(vec[1], env)?;
+                    self.mem.env_insert(env, ident, evaled).or(Err("err"))?;
+                    Ok(SExpr::Sym(ident))
+                } else {
+                    Err("ill formed")
+                }
+                l @ SExpr::Ref(_) => {
+                    let fn_vec = self.mem.vec_from_list(l).or(Err("err"))?;
+                    if fn_vec.len() == 0 {
+                        Err("ill formed")
+                    } else {
+                        let ident = if let SExpr::Sym(s) = fn_vec[0] { s } else { unreachable!() };
+                        let params = self.mem.get_nth_ref(l, 1).unwrap();
+                        let body = self.mem.get_nth_ref(form, 1).unwrap();
+                        let procd = self.make_procedure(params, body, env)?;
+                        self.mem.env_insert(env, ident, procd).or(Err("err"))?;
+                        Ok(SExpr::Sym(ident))
+                    }
+                }
+                _ => Err("ill formed"),
             }
-            // function definition
-            _ => {
-                unimplemented!()
-            },
         }
     }
 
@@ -272,8 +295,10 @@ mod tests {
         eval_ok!("(begin (define a 1) (define b a) b)", i(1));
         eval_ok!("(begin (define a 1) (define b 2) (+ a b))", i(3));
         eval_ok!("(begin (define a 1) (define b 2) (+ a b))", i(3));
-        eval_ok!("(begin (define a (lambda () 5)) (a))", i(5));
-        eval_ok!("(begin (define a 5) (define f (lambda (a) a)) (f a))", i(5));
+        eval_ok!("(begin (define (fn) 5) (fn))", i(5));
+        eval_ok!("(begin (define (fn a) a) (fn 5))", i(5));
+        eval_ok!("(begin (define a 5) (define (fn) a) (fn))", i(5));
+        eval_ok!("(begin (define a 5) (define (fn a) a) (fn 6))", i(6));
     }
 
     #[test]
