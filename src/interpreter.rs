@@ -6,6 +6,8 @@ use crate::parser::Parser;
 pub enum Primitive {
     Add, Sub, Mul, Div, 
     Eql, Gt, Gte, Lt, Lte,
+    Car, Cdr, Cons, SetCar, SetCdr,
+    NullQ,
 }
 
 pub struct Interpreter<'s> {
@@ -22,15 +24,22 @@ impl<'s> Interpreter<'s> {
 
     pub fn setup_intial_env(&mut self) {
         let mut env = Environment::new(SExpr::Nil);
-        env.insert("+", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Add)));
-        env.insert("-", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Sub)));
-        env.insert("*", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Mul)));
-        env.insert("/", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Div)));
-        env.insert("=",  self.mem.alloc(Object::PrimitiveProcedure(Primitive::Eql)));
-        env.insert("<",  self.mem.alloc(Object::PrimitiveProcedure(Primitive::Lt)));
-        env.insert("<=", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Lte)));
-        env.insert(">",  self.mem.alloc(Object::PrimitiveProcedure(Primitive::Gt)));
-        env.insert(">=", self.mem.alloc(Object::PrimitiveProcedure(Primitive::Gte)));
+        let mut p = |a, b| env.insert(a, self.mem.alloc(Object::PrimitiveProcedure(b)));
+        p("+", Primitive::Add);
+        p("-", Primitive::Sub);
+        p("*", Primitive::Mul);
+        p("/", Primitive::Div);
+        p("=",  Primitive::Eql);
+        p("<",  Primitive::Lt);
+        p("<=", Primitive::Lte);
+        p(">",  Primitive::Gt);
+        p(">=", Primitive::Gte);
+        p("car", Primitive::Car);
+        p("cdr", Primitive::Cdr);
+        p("cons", Primitive::Cons);
+        p("set-car!", Primitive::SetCar);
+        p("set-cdr!", Primitive::SetCdr);
+        p("null?", Primitive::NullQ);
         self.initial_env = self.mem.alloc(Object::Env(env));
     }
 
@@ -62,7 +71,7 @@ impl<'s> Interpreter<'s> {
                 Object::CompoundProcedure(_) => Ok(SExpr::Ref(addr)),
                 Object::Env(_) => Ok(SExpr::Ref(addr)),
                 // special forms
-                Object::Pair(SExpr::Sym("quote"), _) => unimplemented!(),
+                &Object::Pair(SExpr::Sym("quote"), e) => self.eval_quote(e),
                 &Object::Pair(SExpr::Sym("set!"), e) => self.eval_set(e, env),
                 &Object::Pair(SExpr::Sym("define"), e) => self.eval_define(e, env),
                 &Object::Pair(SExpr::Sym("if"), e) => self.eval_if(e, env),
@@ -111,7 +120,7 @@ impl<'s> Interpreter<'s> {
         // self.mem.list_from_vec(vec_op_evalr?).or(Ok(SExpr::Nil))
     }    
 
-    fn eval_primitive(&self, procd: Primitive, operands: Vec<SExpr<'s>>) -> Result<SExpr<'s>, &'static str> {
+    fn eval_primitive(&mut self, procd: Primitive, operands: Vec<SExpr<'s>>) -> Result<SExpr<'s>, &'static str> {
         macro_rules! arithmetic_fold { 
             ( $op_iter:expr, $initial:expr, $op:tt) => {
                 $op_iter.try_fold($initial, |acc, &e| match (acc, e) {
@@ -179,6 +188,13 @@ impl<'s> Interpreter<'s> {
             };
         }
 
+        // macro_rules! unpack {
+        //     ( $fn: expr, $vec: expr ) =
+        //     ( $fn: expr, $vec: expr, $( args: expr),*) => {
+                
+        //     };
+        // }
+
         match procd {
             Primitive::Add => afold1!(operands, SExpr::Int(0), +),
             Primitive::Sub => afold2!(operands, -),
@@ -189,6 +205,40 @@ impl<'s> Interpreter<'s> {
             Primitive::Lte => comparison_fold!(operands, <=),
             Primitive::Gt  => comparison_fold!(operands, >),
             Primitive::Gte => comparison_fold!(operands, >=),
+            Primitive::Car => if operands.len() == 1 {
+                self.mem.car(operands[0]).or(Err("type error"))
+            } else {
+                Err("wrong arity")
+            }
+            Primitive::Cdr => if operands.len() == 1 {
+                self.mem.cdr(operands[0]).or(Err("type error"))
+            } else {
+                Err("wrong arity")
+            }
+            Primitive::Cons => if operands.len() == 2 {
+                Ok(self.mem.cons(operands[0], operands[1]))
+            } else {
+                Err("wrong arity")
+            }
+            Primitive::SetCar => if operands.len() == 2 {
+                self.mem.set_car(operands[0], operands[1]).and(Ok(SExpr::Nil)).or(Err("type error"))
+            } else {
+                Err("wrong arity")
+            }
+            Primitive::SetCdr => if operands.len() == 2 {
+                self.mem.set_cdr(operands[0], operands[1]).and(Ok(SExpr::Nil)).or(Err("type error"))
+            } else {
+                Err("wrong arity")
+            }
+            Primitive::NullQ => if operands.len() == 1 {
+                if let SExpr::Nil = operands[0] {
+                    Ok(SExpr::Bool(true))
+                } else {
+                    Ok(SExpr::Bool(false))
+                }
+            } else {
+                Err("wrong arity")
+            }
         }
     }
 
@@ -290,6 +340,15 @@ impl<'s> Interpreter<'s> {
             Err("ill formed")
         }
     }
+
+    fn eval_quote(&self, form: SExpr<'s>) -> Result<SExpr<'s>, &'static str> {
+        let form_vec = self.mem.vec_from_list(form).or(Err("ill formed"))?;
+        if form_vec.len() == 1 {
+            Ok(form_vec[0])
+        } else {
+            Err("ill formed")
+        }
+    }
 }
 
 
@@ -311,6 +370,15 @@ mod tests {
                 let mut interpreter = Interpreter::new(500);
                 let res = interpreter.eval_string($s).expect("err");
                 assert_eq!(res, $ex);
+            }
+        };
+    }
+    macro_rules! eval_ok_str {
+        ($s:expr, $ex:expr) => {
+            {
+                let mut interpreter = Interpreter::new(500);
+                let res = interpreter.eval_string($s).expect("err");
+                assert_eq!(interpreter.mem.to_string(res), $ex);
             }
         };
     }
@@ -440,5 +508,58 @@ mod tests {
             )
         ", i((1..11).fold(1, |a,b| a*b)))
         
+    }
+
+    #[test]
+    fn test_pairs() {
+        eval_ok!("(car (cons 1 2))", i(1));
+        eval_ok!("(cdr (cons 1 2))", i(2));
+        eval_ok!("(car (cdr (cons 1 (cons 2 ()))))", i(2));
+        eval_ok!("(begin
+            (define a (cons 1 2))
+            (set-car! a 5)
+            (car a)
+        )", i(5));
+        eval_ok!("(begin
+            (define a (cons 1 2))
+            (set-cdr! a 5)
+            (cdr a)
+        )", i(5));
+        eval_ok!("(null? ())", b(true));
+        eval_ok!("(null? 1)", b(false));
+        eval_ok_str!("(begin
+            (define (map fn list) 
+                (if (null? list) 
+                    () 
+                    (cons 
+                        (fn (car list))
+                        (map fn (cdr list))
+                    )
+                )
+            )
+            (map (lambda (x) (* x x)) 
+                      (quote (1 2 3))
+                 )
+            )
+        )", "(1 4 9)");
+    }
+
+    #[test]
+    fn test_quote() {
+        eval_ok!("(quote a)", sy("a"));
+        eval_ok_str!("(quote (1 2 3))", "(1 2 3)");
+        eval_ok!("(car (quote (1 2 3)))", i(1));
+        eval_ok!("(car (cdr (quote (1 2))))", i(2));
+    }
+
+    #[test]
+    fn test_string_conversion() {
+        eval_ok_str!("(cons 1 (cons 3 4))", "(1 3 . 4)");
+        eval_ok_str!("(cons (cons 1 2) (cons (cons 3 4) 5))", "((1 . 2) (3 . 4) . 5)");
+        eval_ok_str!("(begin
+            (define a (cons 1 (cons 2 ())))
+            (define b (cons 3 (cons 4 ())))
+            (cons a (cons b ()))
+        )", "((1 2) (3 4))");
     }
 }

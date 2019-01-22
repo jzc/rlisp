@@ -90,7 +90,7 @@ mod tests {
                 let scanner = Scanner::new($left);
                 let tokens = scanner.scan_tokens().ok().unwrap();
                 let mut mem = Memory::new(100);
-                let mut parser = Parser::new(tokens, &mut mem);
+                let parser = Parser::new(tokens, &mut mem);
                 let res = parser.parse();
                 assert!(res.is_ok());
                 assert_eq!(res.unwrap(), $right);

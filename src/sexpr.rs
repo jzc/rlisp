@@ -102,6 +102,34 @@ impl<'s> Memory<'s>  {
         self.alloc(Object::Pair(left, right))
     }
 
+    pub fn car(&self, pair: SExpr<'s>) -> Result<SExpr<'s>, ()> {
+        if let SExpr::Ref(addr) = pair {
+            if let Some(&Object::Pair(car, _)) = self.mem.get(addr) {
+                return Ok(car);
+            }
+        }
+        Err(())
+    }
+
+    pub fn cdr(&self, pair: SExpr<'s>) -> Result<SExpr<'s>, ()> {
+        if let SExpr::Ref(addr) = pair {
+            if let Some(&Object::Pair(_, cdr)) = self.mem.get(addr) {
+                return Ok(cdr);
+            }
+        }
+        Err(())
+    }
+
+    pub fn set_car(&mut self, pair: SExpr<'s>, value: SExpr<'s>) -> Result<(), ()> {
+        if let SExpr::Ref(addr) = pair {
+            if let Some(Object::Pair(ref mut car, _)) = self.mem.get_mut(addr) {
+                *car = value;
+                return Ok(());
+            }
+        }
+        Err(()) // type error
+    }
+
     pub fn set_cdr(&mut self, pair: SExpr<'s>, value: SExpr<'s>) -> Result<(), ()> {
         if let SExpr::Ref(addr) = pair {
             if let Some(Object::Pair(_, ref mut cdr)) = self.mem.get_mut(addr) {
@@ -185,7 +213,7 @@ impl<'s> Memory<'s>  {
 
     pub fn get_nth_ref(&self, e: SExpr<'s>, n: usize) -> Result<SExpr<'s>, ()> {
         let mut curr = e;
-        for i in 0..n {
+        for _ in 0..n {
             if let SExpr::Ref(addr) = curr {
                 if let &Object::Pair(_, right) = &self.mem[addr] {
                     curr = right;
@@ -193,6 +221,49 @@ impl<'s> Memory<'s>  {
             } else { return Err(()); }
         }
         Ok(curr)
+    }
+
+    pub fn to_string(&self, e: SExpr<'s>) -> String {
+        fn s(mem: &Memory, e: SExpr) -> String {
+            match e {
+                SExpr::Int(i) => i.to_string(),
+                SExpr::Float(f) => f.to_string(),
+                SExpr::Bool(b) => b.to_string(),
+                SExpr::Nil => "()".to_string(),
+                SExpr::Ref(r) => match mem.get(r) {
+                    v @ Object::Pair(_, _) => {
+                        let mut acc = "(".to_string();
+                        let mut curr = v;
+                        loop {
+                            match curr {
+                                &Object::Pair(left, right) => {
+                                    acc.push_str(format!("{}", mem.to_string(left)).as_str());
+                                    match right {
+                                        SExpr::Ref(addr) => {
+                                            acc.push(' ');
+                                            curr = mem.get(addr);
+                                        }
+                                        SExpr::Nil => {
+                                            acc = format!("{})", acc);
+                                            break;
+                                        }
+                                        _ => {
+                                            acc = format!("{} . {})", acc, mem.to_string(right));
+                                            break;
+                                        }
+                                    }
+                                }
+                                _ => unimplemented!(),
+                            }
+                        }
+                        acc
+                    }
+                    _ => unimplemented!(),
+                }
+                _ => "".to_string(),
+            }
+        }
+        s(self, e)
     }
 }
 
@@ -223,5 +294,14 @@ mod tests {
         let env3r = mem.alloc(Object::Env(env3));
 
         assert_eq!(mem.env_get("test", env3r).unwrap(), i(2));   
+    }
+
+    #[test]
+    fn test_string() {
+        let mut mem = Memory::new(100);
+        let list = mem.list_from_vec(vec![i(1), i(2), i(3)]).unwrap();
+        assert_eq!(mem.to_string(list), "(1 2 3)");
+        let pair = mem.cons(i(1), i(2));
+        assert_eq!(mem.to_string(pair), "(1 . 2)");
     }
 }
