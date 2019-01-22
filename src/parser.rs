@@ -47,7 +47,7 @@ impl<'s, 'm> Parser<'s, 'm> {
                         }
                         // println!("{:?}", exprs);
                         match self.advance() {
-                            Some(Token::ClosedParen) => Ok(self.mem.list_from_vec(exprs).unwrap()), // unimplemented!(), //Ok(SExpr::from_vec(self.mem, exprs).unwrap()),
+                            Some(Token::ClosedParen) => Ok(self.mem.list_from_vec(exprs)), // unimplemented!(), //Ok(SExpr::from_vec(self.mem, exprs).unwrap()),
                             _ => Err(ParseError { message: "Missing closing parenthesis", line: 0}),
                         }
                     }

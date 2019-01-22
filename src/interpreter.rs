@@ -7,7 +7,7 @@ pub enum Primitive {
     Add, Sub, Mul, Div, 
     Eql, Gt, Gte, Lt, Lte,
     Car, Cdr, Cons, SetCar, SetCdr,
-    NullQ,
+    NullQ, List
 }
 
 pub struct Interpreter<'s> {
@@ -40,6 +40,7 @@ impl<'s> Interpreter<'s> {
         p("set-car!", Primitive::SetCar);
         p("set-cdr!", Primitive::SetCdr);
         p("null?", Primitive::NullQ);
+        p("list", Primitive::List);
         self.initial_env = self.mem.alloc(Object::Env(env));
     }
 
@@ -188,13 +189,6 @@ impl<'s> Interpreter<'s> {
             };
         }
 
-        // macro_rules! unpack {
-        //     ( $fn: expr, $vec: expr ) =
-        //     ( $fn: expr, $vec: expr, $( args: expr),*) => {
-                
-        //     };
-        // }
-
         match procd {
             Primitive::Add => afold1!(operands, SExpr::Int(0), +),
             Primitive::Sub => afold2!(operands, -),
@@ -239,6 +233,7 @@ impl<'s> Interpreter<'s> {
             } else {
                 Err("wrong arity")
             }
+            Primitive::List => Ok(self.mem.list_from_vec(operands)),
         }
     }
 
@@ -258,7 +253,7 @@ impl<'s> Interpreter<'s> {
         if param_vec.iter().any(|e| if let SExpr::Sym(_) = e { false } else { true }) {
             Err("ill formed")
         } else {
-            let list = self.mem.list_from_vec(vec![params, body, env]).unwrap();
+            let list = self.mem.list_from_vec(vec![params, body, env]);
             let r = self.mem.alloc(Object::CompoundProcedure(list));
             Ok(r)
         }
@@ -506,8 +501,45 @@ mod tests {
                 )
                 (factorial 10)
             )
-        ", i((1..11).fold(1, |a,b| a*b)))
-        
+        ", i((1..11).fold(1, |a,b| a*b)));
+
+        eval_ok_str!("(begin
+            (define (map fn list) 
+                (if (null? list) 
+                    () 
+                    (cons 
+                        (fn (car list))
+                        (map fn (cdr list))
+                    )
+                )
+            )
+            (map (lambda (x) (* x x)) 
+                      (quote (1 2 3))
+                 )
+            )
+        )", "(1 4 9)");
+    }
+
+    #[test]
+    fn test_closures() {
+        eval_ok!("(begin
+            (define (fn a) 
+                (define (closure) a)
+                (set! a 3)
+                closure
+            )
+            (define closure (fn 5))
+            (closure)
+        )", i(3));
+        eval_ok_str!("(begin
+            (define a (car (cons 0 -1)))
+            (define consp cons)
+            (define (cons x y) (lambda (z) (if (= z 0) x y)))
+            (define (car x) (x 0))
+            (define (cdr x) (x 1))
+            (define p (cons 1 2))
+            (consp a (consp (car p) (consp (cdr p) ())))
+        )", "(0 1 2)");
     }
 
     #[test]
@@ -527,21 +559,6 @@ mod tests {
         )", i(5));
         eval_ok!("(null? ())", b(true));
         eval_ok!("(null? 1)", b(false));
-        eval_ok_str!("(begin
-            (define (map fn list) 
-                (if (null? list) 
-                    () 
-                    (cons 
-                        (fn (car list))
-                        (map fn (cdr list))
-                    )
-                )
-            )
-            (map (lambda (x) (* x x)) 
-                      (quote (1 2 3))
-                 )
-            )
-        )", "(1 4 9)");
     }
 
     #[test]
@@ -561,5 +578,19 @@ mod tests {
             (define b (cons 3 (cons 4 ())))
             (cons a (cons b ()))
         )", "((1 2) (3 4))");
+        eval_ok_str!("(list 1 2 3)", "(1 2 3)");
+        eval_ok_str!("(list (cons 1 2) (cons 3 4) (cons 5 6))", "((1 . 2) (3 . 4) (5 . 6))");
+        eval_ok_str!("(list (list 1 2 3) (list 4 5 6))", "((1 2 3) (4 5 6))");
+    }
+
+    #[test]
+    #[should_panic(expected="Out of memory")]
+    fn out_of_memory() {
+        let mut interpreter = Interpreter::new(50);
+        let res = interpreter.eval_string("(begin
+            (define (fn) (fn))
+            (fn)
+        )");
+        println!("{:?}", res)
     }
 }

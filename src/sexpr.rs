@@ -93,7 +93,7 @@ impl<'s> Memory<'s>  {
                 self.first = next;
                 SExpr::Ref(r)
             }
-            Object::Empty(None) => unimplemented!(),
+            Object::Empty(None) => panic!("Out of memory"),
             _ => panic!("Head of free list is not an empty object"),
         }
     }
@@ -140,18 +140,18 @@ impl<'s> Memory<'s>  {
         Err(()) // type error
     }
 
-    pub fn list_from_vec(&mut self, vec: Vec<SExpr<'s>>) -> Result<SExpr<'s>, ()> {
+    pub fn list_from_vec(&mut self, vec: Vec<SExpr<'s>>) -> SExpr<'s> {
         let head = match vec.get(0) {
             Some(&e) => self.cons(e, SExpr::Nil),
-            None => return Ok(SExpr::Nil), // input vec has length 0
+            None => return SExpr::Nil, // input vec has length 0
         };
         let mut tail = head;
         for &e in &vec[1..] {
             let curr = self.cons(e, SExpr::Nil);
-            self.set_cdr(tail, curr)?;
+            self.set_cdr(tail, curr).unwrap();
             tail = curr;
         }
-        Ok(head)
+        head
     }
 
     pub fn vec_from_list(&self, list: SExpr<'s>) -> Result<Vec<SExpr<'s>>, ()> {
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn test_string() {
         let mut mem = Memory::new(100);
-        let list = mem.list_from_vec(vec![i(1), i(2), i(3)]).unwrap();
+        let list = mem.list_from_vec(vec![i(1), i(2), i(3)]);
         assert_eq!(mem.to_string(list), "(1 2 3)");
         let pair = mem.cons(i(1), i(2));
         assert_eq!(mem.to_string(pair), "(1 . 2)");
